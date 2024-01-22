@@ -5,6 +5,18 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QFormLayout, QDialog, QListWidget, QListWidgetItem, 
                              QAbstractItemView)
 from PyQt5.QtCore import Qt, QDate
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
+import pandas as pd
+import os
+
+
+script_directory = os.path.dirname(os.path.abspath(__file__))
+excel_file_name = '02. VacationRateApp_Template_Export.xlsx'
+excel_file_path = os.path.join(script_directory, excel_file_name)
+
+df = pd.read_excel(excel_file_path)
+print(df)
 
 # Stylesheet for modern look
 stylesheet = """
@@ -30,8 +42,7 @@ stylesheet = """
     }
 """
 
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.figure import Figure
+
 
 # Custom Dialog for Period Selection
 class PeriodDialog(QDialog):
@@ -153,6 +164,7 @@ class ApplicationWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.title = 'Vacation Rate App'
+        self.currentDialog = None  # Add this line
         self.initUI()
 
     def initUI(self):
@@ -243,13 +255,23 @@ class ApplicationWindow(QMainWindow):
         # Position the metrics frame after the UI is shown
         self.repositionMetricsFrame()
     
+    def onDialogClosed(self):
+     self.currentDialog = None
+
+    
     def showPeriodDialog(self):
-        self.dialog = PeriodDialog(self)
-        self.dialog.show()
+        if self.currentDialog is not None:
+            self.currentDialog.close()
+        self.currentDialog = PeriodDialog(self)
+        self.currentDialog.show()
+        self.currentDialog.finished.connect(self.onDialogClosed)
 
     def showSelectionDialog(self, options, title):
-        self.dialog = SelectionDialog(options, title, self)
-        self.dialog.show()
+        if self.currentDialog is not None:
+            self.currentDialog.close()
+        self.currentDialog = SelectionDialog(options, title, self)
+        self.currentDialog.show()
+        self.currentDialog.finished.connect(self.onDialogClosed)
 
     def resizeEvent(self, event):
         QMainWindow.resizeEvent(self, event)
