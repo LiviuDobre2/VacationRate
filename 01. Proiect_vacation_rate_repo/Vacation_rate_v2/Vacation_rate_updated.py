@@ -192,17 +192,16 @@ class ApplicationWindow(QMainWindow):
         self.periodButton.clicked.connect(self.showPeriodDialog)
 
         self.departmentButton = QPushButton("Department")
-        print(excel_row["Departament"])
-        self.departmentButton.clicked.connect(lambda: self.showSelectionDialog(excel_row["Departament"].unique(), 'Select Department'))
+        self.departmentButton.clicked.connect(lambda: self.showSelectionDialog(map(str,excel_row["Departament"].unique()), 'Select Department'))
 
         self.projectButton = QPushButton('Project')
-        self.projectButton.clicked.connect(lambda: self.showSelectionDialog(excel_row["Project Name"].unique(), 'Select Project'))
+        self.projectButton.clicked.connect(lambda: self.showSelectionDialog(map(str,excel_row["Project Name"].unique()), 'Select Project'))
 
         self.employeeButton = QPushButton('Employee')
-        self.employeeButton.clicked.connect(lambda: self.showSelectionDialog(excel_row["Employee Name"].unique(), 'Select Employee'))
+        self.employeeButton.clicked.connect(lambda: self.showSelectionDialog(map(str,excel_row["Employee Name"].unique()), 'Select Employee'))
 
         self.typeOfLeaveButton = QPushButton('Absence Type')
-        self.typeOfLeaveButton.clicked.connect(lambda: self.showSelectionDialog(excel_row["Absence Type"].unique(), 'Select Type of Leave'))
+        self.typeOfLeaveButton.clicked.connect(lambda: self.showSelectionDialog(map(str,excel_row["Absence Type"].unique()), 'Select Type of Leave'))
 
         # List of buttons
         buttons = [
