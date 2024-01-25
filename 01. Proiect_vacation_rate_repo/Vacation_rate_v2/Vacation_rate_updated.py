@@ -5,8 +5,9 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QPushButton, QLabel, QFrame,
                              QSizePolicy, QDateEdit, QRadioButton, QButtonGroup,
                              QFormLayout, QDialog, QListWidget, QListWidgetItem, 
-                             QAbstractItemView)
-from PyQt5.QtCore import Qt, QDate
+                             QAbstractItemView, QLineEdit)
+from PyQt5.QtCore import Qt, QDate, pyqtSignal
+from PyQt5.QtGui import QFont
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import pandas as pd
@@ -17,7 +18,13 @@ script_directory = os.path.dirname(os.path.abspath(__file__))
 excel_file_name = '02. VacationRateApp_Template_Export.xlsx'
 excel_file_path = os.path.join(script_directory, excel_file_name)
 
-excel_row = pd.read_excel(excel_file_path)
+df = pd.read_excel(excel_file_path)
+unique_departments = df["Departament"].unique().tolist()
+unique_project = df["Project Name"].unique().tolist()
+unique_employee = df["Employee Name"].unique().tolist()
+unique_leave = df["Absence Type"].unique().tolist()
+
+print(df)
 
 # Stylesheet for modern look
 stylesheet = """
@@ -25,7 +32,7 @@ stylesheet = """
         background-color: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, stop:0 rgba(173, 216, 230, 255), stop:1 rgba(255, 255, 255, 255));
     }
     QPushButton {
-        background-color: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, stop:0 rgba(0, 0, 128, 255), stop:1 rgba(0, 0, 255, 255));
+        background-color: rgb(52, 154, 255);  /* Changed button color here */
         border-radius: 5px;
         color: white;
         padding: 6px;
@@ -43,10 +50,12 @@ stylesheet = """
     }
 """
 
-
-
 # Custom Dialog for Period Selection
 class PeriodDialog(QDialog):
+
+    customPeriodSelected = pyqtSignal(str, str)  # Signal for custom period (start date, end date)
+    predefinedPeriodSelected = pyqtSignal(str)  # Signal for predefined period
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Select Period")
@@ -98,20 +107,29 @@ class PeriodDialog(QDialog):
         layout.addLayout(formLayout)
         layout.addLayout(buttonsLayout)
 
+        # Set cursor for buttons
+        self.setCursorForButtons()
+
+    def setCursorForButtons(self):
+        for button in self.findChildren(QPushButton):
+            button.setCursor(Qt.PointingHandCursor)
+            
     def onSubmit(self):
-        # Handle period selection logic here
-        # Get dates if custom period is selected
         if not self.radioGroup.checkedButton():
-            startDate = self.startDateEdit.date()
-            endDate = self.endDateEdit.date()
-            print(f"Custom period: {startDate.toString(Qt.ISODate)} to {endDate.toString(Qt.ISODate)}")
+            startDate = self.startDateEdit.date().toString(Qt.ISODate)
+            endDate = self.endDateEdit.date().toString(Qt.ISODate)
+            print(f"Custom period: {startDate} to {endDate}")
+            self.customPeriodSelected.emit(startDate, endDate)  # Emit the custom period signal
         else:
-            # Or get predefined period
-            print(f"Predefined period: {self.radioGroup.checkedButton().text()}")
+            predefinedPeriod = self.radioGroup.checkedButton().text()
+            print(f"Predefined period: {predefinedPeriod}")
+            self.predefinedPeriodSelected.emit(predefinedPeriod)  # Emit the predefined period signal
         self.close()
+
 
 # Custom Dialog for Selection
 class SelectionDialog(QDialog):
+    selectionMade = pyqtSignal(list, str)
     def __init__(self, options, title, parent=None):
         super().__init__(parent)
         self.setWindowTitle(title)
@@ -121,6 +139,12 @@ class SelectionDialog(QDialog):
 
     def setupUI(self):
         layout = QVBoxLayout(self)
+
+        # Search input field
+        self.searchInput = QLineEdit(self)
+        self.searchInput.setPlaceholderText("Search ")
+        self.searchInput.textChanged.connect(self.filterOptions)
+        layout.addWidget(self.searchInput)
 
         # List widget for options
         self.listWidget = QListWidget(self)
@@ -149,24 +173,53 @@ class SelectionDialog(QDialog):
         # Set the dialog layout
         layout.addLayout(buttonsLayout)
 
+        # Set cursor for buttons
+        self.setCursorForButtons()
+
+    def setCursorForButtons(self):
+        for button in self.findChildren(QPushButton):
+            button.setCursor(Qt.PointingHandCursor)
+
+    def filterOptions(self):
+        search_text = self.searchInput.text().strip()
+        if not search_text:
+            # If the search input is empty, show all options
+            for index in range(self.listWidget.count()):
+                item = self.listWidget.item(index)
+                item.setHidden(False)
+        else:
+            # Filter options based on search text
+            for index in range(self.listWidget.count()):
+                item = self.listWidget.item(index)
+                item_text = item.text()
+                item.setHidden(search_text.lower() not in item_text.lower())
+
     def selectAll(self):
         for index in range(self.listWidget.count()):
             item = self.listWidget.item(index)
             item.setCheckState(Qt.Checked)
 
     def onSubmit(self):
-        # Handle option selection logic here
         selectedOptions = [self.listWidget.item(i).text() for i in range(self.listWidget.count()) 
                            if self.listWidget.item(i).checkState() == Qt.Checked]
         print(f"Selected options: {selectedOptions}")
+        self.selectionMade.emit(selectedOptions, self.windowTitle())  # Emit the signal with selected options and the dialog title as category
         self.close()
 
 class ApplicationWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.selections = {
+            'department': None,
+            'project': None,
+            'employee': None,
+            'leave': None,
+            'period': None
+        }
         self.title = 'Vacation Rate App'
         self.currentDialog = None  # Add this line
         self.initUI()
+
 
     def initUI(self):
         self.setWindowTitle(self.title)
@@ -187,18 +240,23 @@ class ApplicationWindow(QMainWindow):
         # Create buttons
         self.periodButton = QPushButton('Period')
         self.periodButton.clicked.connect(self.showPeriodDialog)
+        self.modifyButtonAppearance(self.periodButton)  # Call a function to modify button appearance
 
-        self.departmentButton = QPushButton("Department")
-        self.departmentButton.clicked.connect(lambda: self.showSelectionDialog(map(str,excel_row["Departament"].unique()), 'Select Department'))
+        self.departmentButton = QPushButton('Department')
+        self.departmentButton.clicked.connect(lambda: self.showSelectionDialog(unique_departments, 'Select Department'))
+        self.modifyButtonAppearance(self.departmentButton)  # Call a function to modify button appearance
 
         self.projectButton = QPushButton('Project')
-        self.projectButton.clicked.connect(lambda: self.showSelectionDialog(map(str,excel_row["Project Name"].unique()), 'Select Project'))
+        self.projectButton.clicked.connect(lambda: self.showSelectionDialog(unique_project, 'Select Project'))
+        self.modifyButtonAppearance(self.projectButton)  # Call a function to modify button appearance
 
         self.employeeButton = QPushButton('Employee')
-        self.employeeButton.clicked.connect(lambda: self.showSelectionDialog(map(str,excel_row["Employee Name"].unique()), 'Select Employee'))
+        self.employeeButton.clicked.connect(lambda: self.showSelectionDialog(unique_employee, 'Select Employee'))
+        self.modifyButtonAppearance(self.employeeButton)  # Call a function to modify button appearance
 
-        self.typeOfLeaveButton = QPushButton('Absence Type')
-        self.typeOfLeaveButton.clicked.connect(lambda: self.showSelectionDialog(map(str,excel_row["Absence Type"].unique()), 'Select Type of Leave'))
+        self.typeOfLeaveButton = QPushButton('Type of Leave')
+        self.typeOfLeaveButton.clicked.connect(lambda: self.showSelectionDialog(unique_leave, 'Select Type of Leave'))
+        self.modifyButtonAppearance(self.typeOfLeaveButton)  # Call a function to modify button appearance
 
         # List of buttons
         buttons = [
@@ -220,13 +278,8 @@ class ApplicationWindow(QMainWindow):
         self.canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         rightPanel.addWidget(self.canvas)
         
-        # Plotting a placeholder graph
-        ax = self.figure.add_subplot(111)  # Adding a subplot
-        ax.hist([1, 2, 2, 3, 4, 5, 5, 6, 7, 8, 8, 9], bins=8, color='blue', alpha=0.7)  # Example histogram data
-        ax.set_title('Histogram Placeholder')
-        ax.set_xlabel('X-axis Label')
-        ax.set_ylabel('Y-axis Label')
-        self.canvas.draw()  # Draw the canvas with the histogram
+        # Create and display the histogram
+        self.createHistogram()
 
         # Frame for the metrics overlay
         self.metricsFrame = QFrame(self.canvas)
@@ -256,6 +309,16 @@ class ApplicationWindow(QMainWindow):
         # Position the metrics frame after the UI is shown
         self.repositionMetricsFrame()
     
+    def modifyButtonAppearance(self, button):
+        button.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+        button.setFont(QFont("Arial", 14))  # Adjust the font and size as needed
+
+        # Apply the filter_buttons_stylesheet to the button
+        button.setStyleSheet(stylesheet)
+
+        button.setCursor(Qt.PointingHandCursor)  # Change cursor to a hand when hovering
+
+
     def onDialogClosed(self):
      self.currentDialog = None
 
@@ -264,13 +327,44 @@ class ApplicationWindow(QMainWindow):
         if self.currentDialog is not None:
             self.currentDialog.close()
         self.currentDialog = PeriodDialog(self)
+        self.currentDialog.customPeriodSelected.connect(self.handleCustomPeriod)  # Connect to a slot for custom period
+        self.currentDialog.predefinedPeriodSelected.connect(self.handlePredefinedPeriod)  # Connect to a slot for predefined period
         self.currentDialog.show()
         self.currentDialog.finished.connect(self.onDialogClosed)
+
+    def handleCustomPeriod(self, startDate, endDate):
+        # Store the custom period as a tuple of (startDate, endDate)
+        self.selections['period'] = (startDate, endDate)
+        print(f"Custom period received in main window: {startDate} to {endDate}")
+        print("Current selections:", self.selections)
+
+
+    def handlePredefinedPeriod(self, period):
+        # Handle the predefined period here
+        self.selections['period'] = period
+        print(f"Predefined period received in main window: {period}")
+        print("Current selections:", self.selections)
+    
+    def handleSelection(self, selections, category):
+        # category is one of 'Department', 'Project', 'Employee', or 'Type of Leave'
+        category_key_map = {
+            'Select Department': 'department',
+            'Select Project': 'project',
+            'Select Employee': 'employee',
+            'Select Type of Leave': 'leave'
+        }
+        category_key = category_key_map.get(category)
+        if category_key:
+            self.selections[category_key] = selections
+            print(f"{category_key} selected: {selections}")
+        print("Current selections:", self.selections)
+
 
     def showSelectionDialog(self, options, title):
         if self.currentDialog is not None:
             self.currentDialog.close()
         self.currentDialog = SelectionDialog(options, title, self)
+        self.currentDialog.selectionMade.connect(self.handleSelection)  # Connect the signal to handleSelection
         self.currentDialog.show()
         self.currentDialog.finished.connect(self.onDialogClosed)
 
@@ -285,6 +379,69 @@ class ApplicationWindow(QMainWindow):
         top_padding = 10  # Adjust this value to increase or decrease the top padding
         new_right_position = self.canvas.width() - self.metricsFrame.width() - right_padding
         self.metricsFrame.move(new_right_position, top_padding)
+    def createHistogram(self):
+        # Clear the previous figure
+        self.figure.clear()
+        
+        # Create an example histogram
+        ax = self.figure.add_subplot(111)  # Adding a subplot
+        data = [1, 2, 2, 3, 4, 5, 5, 6, 7, 8, 8, 9]  # Example data
+        ax.hist(data, bins=8, color='blue', alpha=0.7)
+        ax.set_title('Example Histogram')
+        ax.set_xlabel('X-axis Label')
+        ax.set_ylabel('Y-axis Label')
+        
+        # Draw the canvas with the histogram
+        self.canvas.draw()
+
+    def getFilteredData(self):
+        # Start with the full dataset
+        filtered_data = df.copy()
+
+        # Apply other selections as filters
+
+        # Now apply the period filter
+        period_selection = self.selections['period']
+        if period_selection:
+            if isinstance(period_selection, tuple):
+                # It's a custom period (startDate, endDate)
+                start_date, end_date = pd.to_datetime(period_selection[0]), pd.to_datetime(period_selection[1])
+                filtered_data = filtered_data[(filtered_data['From'] >= start_date) & (filtered_data['To'] <= end_date)]
+            elif period_selection == "All Available Period": 
+                # No date filtering needed, all data is already included
+                pass
+            else:
+                # It's a predefined period like "Last Month"
+                start_date, end_date = self.get_predefined_period_dates(period_selection)
+                filtered_data = filtered_data[(filtered_data['From'] >= start_date) & (filtered_data['To'] <= end_date)]
+
+        return filtered_data
+    
+    def get_predefined_period_dates(self, period):
+        today = pd.to_datetime('today').normalize()  # Normalize to remove time
+        if period == "Last Day":
+            start_date = end_date = today - pd.Timedelta(days=1)
+        elif period == "Last Week":
+            end_date = today - pd.Timedelta(days=1)  # Exclude today
+            start_date = end_date - pd.Timedelta(days=6)  # 7 days including the end date
+        elif period == "Last Month":
+            first_day_this_month = today.replace(day=1)  # First day of the current month
+            last_day_last_month = first_day_this_month - pd.Timedelta(days=1)  # Last day of the previous month
+            start_date = last_day_last_month.replace(day=1)  # First day of the previous month
+            end_date = last_day_last_month
+        elif period == "Last Quarter":
+            current_quarter = ((today.month - 1) // 3) + 1
+            first_month_last_quarter = (current_quarter - 2) * 3 + 1
+            year_adjustment = today.year if first_month_last_quarter > 0 else today.year - 1
+            month_adjustment = first_month_last_quarter if first_month_last_quarter > 0 else first_month_last_quarter + 12
+            start_date = pd.Timestamp(year=year_adjustment, month=month_adjustment, day=1)
+            end_date = (start_date + pd.DateOffset(months=3)) - pd.Timedelta(days=1)
+        else:
+            raise ValueError(f"Predefined period '{period}' is not recognized.")
+        
+        return start_date, end_date
+
+
 
 # Run the application
 app = QApplication(sys.argv)
