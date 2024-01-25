@@ -192,6 +192,7 @@ class ApplicationWindow(QMainWindow):
         self.periodButton.clicked.connect(self.showPeriodDialog)
 
         self.departmentButton = QPushButton("Department")
+        print(excel_row["Departament"])
         self.departmentButton.clicked.connect(lambda: self.showSelectionDialog(excel_row["Departament"].unique(), 'Select Department'))
 
         self.projectButton = QPushButton('Project')
