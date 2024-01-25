@@ -1,4 +1,6 @@
 import sys
+import os
+import pandas as pd
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QPushButton, QLabel, QFrame,
                              QSizePolicy, QDateEdit, QRadioButton, QButtonGroup,
@@ -182,22 +184,24 @@ class ApplicationWindow(QMainWindow):
         
         # Left panel for filter buttons
         leftPanel = QVBoxLayout()
-
+        #load excel
+        excel_sheet= self.read_excel_data()
+        excel_row=excel_sheet["Sheet1"]
         # Create buttons
         self.periodButton = QPushButton('Period')
         self.periodButton.clicked.connect(self.showPeriodDialog)
 
-        self.departmentButton = QPushButton('Department')
-        self.departmentButton.clicked.connect(lambda: self.showSelectionDialog(['Dept 1', 'Dept 2', 'Dept 3'], 'Select Department'))
+        self.departmentButton = QPushButton("Department")
+        self.departmentButton.clicked.connect(lambda: self.showSelectionDialog(excel_row["Departament"].unique(), 'Select Department'))
 
         self.projectButton = QPushButton('Project')
-        self.projectButton.clicked.connect(lambda: self.showSelectionDialog(['Project A', 'Project B', 'Project C'], 'Select Project'))
+        self.projectButton.clicked.connect(lambda: self.showSelectionDialog(excel_row["Project Name"].unique(), 'Select Project'))
 
         self.employeeButton = QPushButton('Employee')
-        self.employeeButton.clicked.connect(lambda: self.showSelectionDialog(['Employee X', 'Employee Y', 'Employee Z'], 'Select Employee'))
+        self.employeeButton.clicked.connect(lambda: self.showSelectionDialog(excel_row["Employee Name"].unique(), 'Select Employee'))
 
-        self.typeOfLeaveButton = QPushButton('Type of leave')
-        self.typeOfLeaveButton.clicked.connect(lambda: self.showSelectionDialog(['Sick Leave', 'Vacation', 'Maternity Leave'], 'Select Type of Leave'))
+        self.typeOfLeaveButton = QPushButton('Absence Type')
+        self.typeOfLeaveButton.clicked.connect(lambda: self.showSelectionDialog(excel_row["Absence Type"].unique(), 'Select Type of Leave'))
 
         # List of buttons
         buttons = [
