@@ -17,8 +17,7 @@ script_directory = os.path.dirname(os.path.abspath(__file__))
 excel_file_name = '02. VacationRateApp_Template_Export.xlsx'
 excel_file_path = os.path.join(script_directory, excel_file_name)
 
-df = pd.read_excel(excel_file_path)
-print(df)
+excel_row = pd.read_excel(excel_file_path)
 
 # Stylesheet for modern look
 stylesheet = """
@@ -184,9 +183,7 @@ class ApplicationWindow(QMainWindow):
         
         # Left panel for filter buttons
         leftPanel = QVBoxLayout()
-        #load excel
-        excel_sheet= self.read_excel_data()
-        excel_row=excel_sheet["Sheet1"]
+
         # Create buttons
         self.periodButton = QPushButton('Period')
         self.periodButton.clicked.connect(self.showPeriodDialog)
