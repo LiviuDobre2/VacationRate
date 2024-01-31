@@ -290,7 +290,7 @@ class ApplicationWindow(QMainWindow):
         self.metricsFrame.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Maximum)
 
         # Create a QLabel for each metric and add it to the metrics layout
-        metrics = ['Metric 1: XXX', 'Metric 2: XXX', 'Metric 3: XXX']  # Example metrics
+        metrics =self.selections  # Example metrics
         for metric in metrics:
             label = QLabel(metric)
             label.setAlignment(Qt.AlignTop | Qt.AlignRight)
@@ -337,6 +337,7 @@ class ApplicationWindow(QMainWindow):
         self.selections['period'] = (startDate, endDate)
         print(f"Custom period received in main window: {startDate} to {endDate}")
         print("Current selections:", self.selections)
+        self.updateCustomMetricsOverlay(startDate,endDate)
 
 
     def handlePredefinedPeriod(self, period):
@@ -344,7 +345,7 @@ class ApplicationWindow(QMainWindow):
         self.selections['period'] = period
         print(f"Predefined period received in main window: {period}")
         print("Current selections:", self.selections)
-    
+        self.updateMetricsOverlay()
     def handleSelection(self, selections, category):
         # category is one of 'Department', 'Project', 'Employee', or 'Type of Leave'
         category_key_map = {
@@ -358,7 +359,71 @@ class ApplicationWindow(QMainWindow):
             self.selections[category_key] = selections
             print(f"{category_key} selected: {selections}")
         print("Current selections:", self.selections)
+ 
+        
+    def updateMetricsOverlay(self):
+        # Clear the previous content of the metrics overlay
 
+        for i in reversed(range(self.metricsFrame.layout().count())):
+            item = self.metricsFrame.layout().itemAt(i)
+            widget = item.widget()
+            if widget:
+                widget.setParent(None)
+
+        # Display the selected period in the metrics overlay
+        selected_period2 = self.getFilteredDate()
+        mask=self.selections
+        del mask['period']
+        for filter in mask.values():
+            if (filter != None):
+                filtered_row=selected_period2[selected_period2["Project Name"]==filter[0]]
+                print("total")
+                print(filtered_row["Sum of Entitlement for 2023"].sum())
+                print("luate")
+                total=filtered_row["Sum of Entitlement for 2023"].sum()
+                luate=filtered_row["Att./abs. days"].sum()
+                print(filtered_row["Att./abs. days"].sum())
+                metric1=luate*100/total
+                period_text = "Days Taken %d%% %s" %(metric1,"total")
+                print(metric1)
+
+        
+                period_label = QLabel(period_text)
+                period_label.setAlignment(Qt.AlignTop | Qt.AlignRight)
+                period_label.setWordWrap(True)  # Enable word wrap
+
+                # Set minimum and maximum sizes for the label
+                period_label.setMinimumSize(0, period_label.sizeHint().height())
+                period_label.setMaximumSize(period_label.sizeHint().width(), period_label.sizeHint().height())
+
+                self.metricsFrame.layout().addWidget(period_label)
+
+        # Reposition the metrics frame
+        self.repositionMetricsFrame()
+        
+    def updateCustomMetricsOverlay(self,start_date,end_date):
+       # Clear the previous content of the metrics overlay
+
+        for i in reversed(range(self.metricsFrame.layout().count())):
+            item = self.metricsFrame.layout().itemAt(i)
+            widget = item.widget()
+            if widget:
+                widget.setParent(None)
+
+       # Display the selected period in the metrics overlay
+        selected_period2 = self.getFilteredDate()
+        print(selected_period2)
+        period_text = f"Selected Period: {start_date} to {end_date}"
+        period_label = QLabel(period_text)
+        period_label.setAlignment(Qt.AlignTop | Qt.AlignRight)
+        period_label.setWordWrap(True)  # Enable word wrap
+        # Set minimum and maximum sizes for the label
+        period_label.setMinimumSize(0, period_label.sizeHint().height())
+        period_label.setMaximumSize(period_label.sizeHint().width(), period_label.sizeHint().height())
+
+        self.metricsFrame.layout().addWidget(period_label)
+        # Reposition the metrics frame
+        self.repositionMetricsFrame()
 
     def showSelectionDialog(self, options, title):
         if self.currentDialog is not None:
@@ -394,12 +459,11 @@ class ApplicationWindow(QMainWindow):
         # Draw the canvas with the histogram
         self.canvas.draw()
 
-    def getFilteredData(self):
+    def getFilteredDate(self):
         # Start with the full dataset
         filtered_data = df.copy()
 
         # Apply other selections as filters
-
         # Now apply the period filter
         period_selection = self.selections['period']
         if period_selection:
@@ -420,27 +484,23 @@ class ApplicationWindow(QMainWindow):
     def get_predefined_period_dates(self, period):
         today = pd.to_datetime('today').normalize()  # Normalize to remove time
         if period == "Last Day":
-            start_date = end_date = today - pd.Timedelta(days=1)
-        elif period == "Last Week":
+            end_date = today - pd.Timedelta(days=1)
+        if period == "Last Week":
             end_date = today - pd.Timedelta(days=1)  # Exclude today
             start_date = end_date - pd.Timedelta(days=6)  # 7 days including the end date
-        elif period == "Last Month":
+        if period == "Last Month":
             first_day_this_month = today.replace(day=1)  # First day of the current month
             last_day_last_month = first_day_this_month - pd.Timedelta(days=1)  # Last day of the previous month
             start_date = last_day_last_month.replace(day=1)  # First day of the previous month
             end_date = last_day_last_month
-        elif period == "Last Quarter":
+        if period == "Last Quarter":
             current_quarter = ((today.month - 1) // 3) + 1
             first_month_last_quarter = (current_quarter - 2) * 3 + 1
             year_adjustment = today.year if first_month_last_quarter > 0 else today.year - 1
             month_adjustment = first_month_last_quarter if first_month_last_quarter > 0 else first_month_last_quarter + 12
             start_date = pd.Timestamp(year=year_adjustment, month=month_adjustment, day=1)
             end_date = (start_date + pd.DateOffset(months=3)) - pd.Timedelta(days=1)
-        else:
-            raise ValueError(f"Predefined period '{period}' is not recognized.")
-        
         return start_date, end_date
-
 
 
 # Run the application
