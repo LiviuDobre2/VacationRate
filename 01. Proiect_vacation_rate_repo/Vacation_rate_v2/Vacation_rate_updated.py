@@ -10,8 +10,11 @@ from PyQt5.QtCore import Qt, QDate, pyqtSignal
 from PyQt5.QtGui import QFont
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
+import matplotlib.dates as mdates  
+import numpy as np
 import pandas as pd
 import os
+
 
 
 script_directory = os.path.dirname(os.path.abspath(__file__))
@@ -52,14 +55,13 @@ stylesheet = """
 
 # Custom Dialog for Period Selection
 class PeriodDialog(QDialog):
-
+    
     customPeriodSelected = pyqtSignal(str, str)  # Signal for custom period (start date, end date)
     predefinedPeriodSelected = pyqtSignal(str)  # Signal for predefined period
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Select Period")
-        self.setGeometry(100, 100, 300, 200)
         self.setupUI()
 
     def setupUI(self):
@@ -76,21 +78,28 @@ class PeriodDialog(QDialog):
 
         # Radio buttons for predefined periods
         self.radioGroup = QButtonGroup(self)
+        self.radioCustom = QRadioButton("Custom")
+        self.radioCustom.setChecked(True)
         self.radioLastDay = QRadioButton("Last Day")
         self.radioLastWeek = QRadioButton("Last Week")
         self.radioLastMonth = QRadioButton("Last Month")
         self.radioLastQuarter = QRadioButton("Last Quarter")
         self.radioAllPeriod = QRadioButton("All Available Period")
+        self.radioGroup.addButton(self.radioCustom)
         self.radioGroup.addButton(self.radioLastDay)
         self.radioGroup.addButton(self.radioLastWeek)
         self.radioGroup.addButton(self.radioLastMonth)
         self.radioGroup.addButton(self.radioLastQuarter)
         self.radioGroup.addButton(self.radioAllPeriod)
+        formLayout.addRow(self.radioCustom)
         formLayout.addRow(self.radioLastDay)
         formLayout.addRow(self.radioLastWeek)
         formLayout.addRow(self.radioLastMonth)
         formLayout.addRow(self.radioLastQuarter)
         formLayout.addRow(self.radioAllPeriod)
+
+        # Connect radio button group
+        self.radioGroup.buttonClicked.connect(self.onRadioButtonClicked)
 
         # Submit and Cancel buttons
         buttonsLayout = QHBoxLayout()
@@ -106,6 +115,7 @@ class PeriodDialog(QDialog):
         # Set the dialog layout
         layout.addLayout(formLayout)
         layout.addLayout(buttonsLayout)
+        self.setLayout(layout)  # Set the layout manager
 
         # Set cursor for buttons
         self.setCursorForButtons()
@@ -113,17 +123,29 @@ class PeriodDialog(QDialog):
     def setCursorForButtons(self):
         for button in self.findChildren(QPushButton):
             button.setCursor(Qt.PointingHandCursor)
-            
-    def onSubmit(self):
-        if not self.radioGroup.checkedButton():
-            startDate = self.startDateEdit.date().toString(Qt.ISODate)
-            endDate = self.endDateEdit.date().toString(Qt.ISODate)
-            print(f"Custom period: {startDate} to {endDate}")
-            self.customPeriodSelected.emit(startDate, endDate)  # Emit the custom period signal
+
+    def onRadioButtonClicked(self, button):
+        if button == self.radioCustom:
+            self.startDateEdit.setEnabled(True)
+            self.endDateEdit.setEnabled(True)
         else:
-            predefinedPeriod = self.radioGroup.checkedButton().text()
-            print(f"Predefined period: {predefinedPeriod}")
-            self.predefinedPeriodSelected.emit(predefinedPeriod)  # Emit the predefined period signal
+            self.startDateEdit.setEnabled(False)
+            self.endDateEdit.setEnabled(False)
+
+    def onSubmit(self):
+        checkedButton = self.radioGroup.checkedButton()
+        if checkedButton:  # Ensure that a button is actually selected
+            if checkedButton == self.radioCustom:
+                startDate = self.startDateEdit.date().toString(Qt.ISODate)
+                endDate = self.endDateEdit.date().toString(Qt.ISODate)
+                print(f"Custom period: {startDate} to {endDate}")
+                self.customPeriodSelected.emit(startDate, endDate)  # Emit the custom period signal
+            else:
+                predefinedPeriod = checkedButton.text()
+                print(f"Predefined period: {predefinedPeriod}")
+                self.predefinedPeriodSelected.emit(predefinedPeriod)  # Emit the predefined period signal
+        else:
+            print("No period selection made.")
         self.close()
 
 
@@ -133,7 +155,6 @@ class SelectionDialog(QDialog):
     def __init__(self, options, title, parent=None):
         super().__init__(parent)
         self.setWindowTitle(title)
-        self.setGeometry(100, 100, 300, 200)
         self.options = options
         self.setupUI()
 
@@ -144,7 +165,9 @@ class SelectionDialog(QDialog):
         self.searchInput = QLineEdit(self)
         self.searchInput.setPlaceholderText("Search ")
         self.searchInput.textChanged.connect(self.filterOptions)
+
         layout.addWidget(self.searchInput)
+        self.setLayout(layout)
 
         # List widget for options
         self.listWidget = QListWidget(self)
@@ -333,17 +356,49 @@ class ApplicationWindow(QMainWindow):
         self.currentDialog.finished.connect(self.onDialogClosed)
 
     def handleCustomPeriod(self, startDate, endDate):
-        # Store the custom period as a tuple of (startDate, endDate)
-        self.selections['period'] = (startDate, endDate)
-        print(f"Custom period received in main window: {startDate} to {endDate}")
+        # Convert startDate and endDate from strings to datetime objects
+        start_date = pd.to_datetime(startDate)
+        end_date = pd.to_datetime(endDate)
+
+        # Store the custom period as a tuple of (start_date, end_date)
+        self.selections['period'] = (start_date, end_date)
+        print(f"Custom period received in main window: {start_date} to {end_date}")
         print("Current selections:", self.selections)
+        self.createHistogram()  
 
 
     def handlePredefinedPeriod(self, period):
-        # Handle the predefined period here
-        self.selections['period'] = period
+        # Get the current date
+        current_date = pd.to_datetime("today")
+
+        if period == "Last Day":
+            end_date = current_date - pd.Timedelta(days=1)
+            start_date = end_date
+        elif period == "Last Week":
+            end_date = (current_date - pd.offsets.Week(weekday=6)).normalize()
+            start_date = end_date - pd.Timedelta(days=6)
+        elif period == "Last Month":
+            end_date = (current_date - pd.offsets.MonthBegin()).normalize() - pd.Timedelta(days=1)
+            start_date = end_date - pd.offsets.MonthBegin() + pd.Timedelta(days=1)
+        elif period == "Last Quarter":
+            end_date = (current_date - pd.offsets.QuarterBegin(startingMonth=1)).normalize() - pd.Timedelta(days=1)
+            start_date = end_date - pd.offsets.QuarterBegin(startingMonth=1) + pd.Timedelta(days=1)
+        elif period == "All Available Period":
+            # Use the full range of dates available in the dataset
+            start_date = df['From'].min()
+            end_date = df['To'].max()
+        else:
+            # Default case if period is not recognized
+            start_date = None
+            end_date = None
+
+        # Store the period as a tuple of (start_date, end_date)
+        self.selections['period'] = (start_date, end_date)
         print(f"Predefined period received in main window: {period}")
+        print(f"Start date: {start_date}, End date: {end_date}")
         print("Current selections:", self.selections)
+        self.createHistogram()  # Update the histogram after applying the new period filter
+
     
     def handleSelection(self, selections, category):
         # category is one of 'Department', 'Project', 'Employee', or 'Type of Leave'
@@ -358,6 +413,7 @@ class ApplicationWindow(QMainWindow):
             self.selections[category_key] = selections
             print(f"{category_key} selected: {selections}")
         print("Current selections:", self.selections)
+        self.createHistogram()
 
 
     def showSelectionDialog(self, options, title):
@@ -379,67 +435,105 @@ class ApplicationWindow(QMainWindow):
         top_padding = 10  # Adjust this value to increase or decrease the top padding
         new_right_position = self.canvas.width() - self.metricsFrame.width() - right_padding
         self.metricsFrame.move(new_right_position, top_padding)
+
     def createHistogram(self):
-        # Clear the previous figure
+        filtered_df = self.filterData()
+
+        # Check if filtered_df is empty or if 'From'/'To' columns have only NaN values
+        if filtered_df.empty or filtered_df['From'].isna().all() or filtered_df['To'].isna().all():
+            print("No data to display for the selected filters.")
+            self.displayMessage("No data to display for the selected filters")
+            return  # Exit the method
+
+        # Convert 'From' and 'To' columns to datetime
+        filtered_df['From'] = pd.to_datetime(filtered_df['From'])
+        filtered_df['To'] = pd.to_datetime(filtered_df['To'])
+
+        # Initialize a DataFrame to hold the counts for each month
+        # Initialize a DataFrame to hold the counts for each month
+        if not pd.isnull(filtered_df['From'].min()) and not pd.isnull(filtered_df['To'].max()):
+            start_date = filtered_df['From'].min().replace(day=1)
+            end_date = filtered_df['To'].max().replace(day=1) + pd.offsets.MonthEnd(1)
+            date_range = pd.date_range(start=start_date, end=end_date, freq='MS')
+            absence_counts = pd.DataFrame(index=date_range, columns=['AbsenceDays'])
+            absence_counts['AbsenceDays'] = 0
+
+            # Populate absence_counts for each absence record
+            for _, row in filtered_df.iterrows():
+                start, end = row['From'], row['To']
+                while start <= end:
+                    month_start = start.replace(day=1)
+                    if month_start in absence_counts.index:
+                        next_month = month_start + pd.offsets.MonthBegin(1)
+                        days_in_month = (min(end, next_month - pd.Timedelta(days=1)) - start).days + 1
+                        absence_counts.loc[month_start, 'AbsenceDays'] += days_in_month
+                    start = next_month
+
+            # Debug print to understand the state of absence_counts
+            print("Absence Counts:\n", absence_counts)
+
+        # Plot the histogram if there are valid absence days
+        if not absence_counts['AbsenceDays'].isna().all():
+            self.plotHistogram(absence_counts)
+        else:
+            print("No absence data for the selected filters.")
+            self.displayMessage("No absence data for the selected filters")
+
+    def displayMessage(self, message):
+        # Clear the previous figure and display a message
         self.figure.clear()
-        
-        # Create an example histogram
-        ax = self.figure.add_subplot(111)  # Adding a subplot
-        data = [1, 2, 2, 3, 4, 5, 5, 6, 7, 8, 8, 9]  # Example data
-        ax.hist(data, bins=8, color='blue', alpha=0.7)
-        ax.set_title('Example Histogram')
-        ax.set_xlabel('X-axis Label')
-        ax.set_ylabel('Y-axis Label')
-        
-        # Draw the canvas with the histogram
+        ax = self.figure.add_subplot(111)
+        ax.text(0.5, 0.5, message, horizontalalignment='center', verticalalignment='center', transform=ax.transAxes)
         self.canvas.draw()
 
-    def getFilteredData(self):
-        # Start with the full dataset
-        filtered_data = df.copy()
+    def plotHistogram(self, absence_counts):
+        # Clear the previous figure
+        self.figure.clear()
+        ax = self.figure.add_subplot(111)
+        ax.bar(absence_counts.index, absence_counts['AbsenceDays'], width=20, color='blue', alpha=0.7)
 
-        # Apply other selections as filters
+        # Formatting the date on X-axis to make it more readable
+        ax.xaxis_date()
+        ax.xaxis.set_major_locator(mdates.MonthLocator())
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+        ax.figure.autofmt_xdate()
 
-        # Now apply the period filter
-        period_selection = self.selections['period']
-        if period_selection:
-            if isinstance(period_selection, tuple):
-                # It's a custom period (startDate, endDate)
-                start_date, end_date = pd.to_datetime(period_selection[0]), pd.to_datetime(period_selection[1])
-                filtered_data = filtered_data[(filtered_data['From'] >= start_date) & (filtered_data['To'] <= end_date)]
-            elif period_selection == "All Available Period": 
-                # No date filtering needed, all data is already included
-                pass
-            else:
-                # It's a predefined period like "Last Month"
-                start_date, end_date = self.get_predefined_period_dates(period_selection)
-                filtered_data = filtered_data[(filtered_data['From'] >= start_date) & (filtered_data['To'] <= end_date)]
+        # Set titles and labels
+        ax.set_title('Monthly Absence Counts')
+        ax.set_xlabel('Month')
+        ax.set_ylabel('Total Absence Days')
 
-        return filtered_data
+        # Draw the canvas with the histogram
+        self.canvas.draw()
     
-    def get_predefined_period_dates(self, period):
-        today = pd.to_datetime('today').normalize()  # Normalize to remove time
-        if period == "Last Day":
-            start_date = end_date = today - pd.Timedelta(days=1)
-        elif period == "Last Week":
-            end_date = today - pd.Timedelta(days=1)  # Exclude today
-            start_date = end_date - pd.Timedelta(days=6)  # 7 days including the end date
-        elif period == "Last Month":
-            first_day_this_month = today.replace(day=1)  # First day of the current month
-            last_day_last_month = first_day_this_month - pd.Timedelta(days=1)  # Last day of the previous month
-            start_date = last_day_last_month.replace(day=1)  # First day of the previous month
-            end_date = last_day_last_month
-        elif period == "Last Quarter":
-            current_quarter = ((today.month - 1) // 3) + 1
-            first_month_last_quarter = (current_quarter - 2) * 3 + 1
-            year_adjustment = today.year if first_month_last_quarter > 0 else today.year - 1
-            month_adjustment = first_month_last_quarter if first_month_last_quarter > 0 else first_month_last_quarter + 12
-            start_date = pd.Timestamp(year=year_adjustment, month=month_adjustment, day=1)
-            end_date = (start_date + pd.DateOffset(months=3)) - pd.Timedelta(days=1)
-        else:
-            raise ValueError(f"Predefined period '{period}' is not recognized.")
-        
-        return start_date, end_date
+    def filterData(self):
+        # Start with the unfiltered DataFrame
+        filtered_df = df.copy()
+        print("Initial DataFrame:", filtered_df)  # Debug print
+
+        # Apply period filter
+        if self.selections['period']:
+            start_date, end_date = self.selections['period']
+            if start_date and end_date:
+                # Filter the data to include only records within the selected period
+                filtered_df = filtered_df[(filtered_df['From'] >= start_date) & (filtered_df['To'] <= end_date)]
+
+        # Filter the data based on selections
+        for category, selection in self.selections.items():
+            if selection:  # If there are selections for this category
+                print(f"Applying filter for {category}: {selection}")  # Debug print
+                if category == 'department':
+                    filtered_df = filtered_df[filtered_df['Departament'].isin(selection)]
+                elif category == 'project':
+                    filtered_df = filtered_df[filtered_df['Project Name'].isin(selection)]
+                elif category == 'employee':
+                    filtered_df = filtered_df[filtered_df['Employee Name'].isin(selection)]
+                elif category == 'leave':
+                    filtered_df = filtered_df[filtered_df['Absence Type'].isin(selection)]
+                print(f"DataFrame after {category} filter:", filtered_df)  # Debug print
+
+        # Return the filtered DataFrame
+        return filtered_df
 
 
 
