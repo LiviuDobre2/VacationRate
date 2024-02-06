@@ -77,26 +77,19 @@ class PeriodDialog(QDialog):
         formLayout.addRow('End Date:', self.endDateEdit)
 
         # Radio buttons for predefined periods
+        self.radioButtons = []
         self.radioGroup = QButtonGroup(self)
         self.radioCustom = QRadioButton("Custom")
         self.radioCustom.setChecked(True)
-        self.radioLastDay = QRadioButton("Last Day")
-        self.radioLastWeek = QRadioButton("Last Week")
-        self.radioLastMonth = QRadioButton("Last Month")
-        self.radioLastQuarter = QRadioButton("Last Quarter")
-        self.radioAllPeriod = QRadioButton("All Available Period")
         self.radioGroup.addButton(self.radioCustom)
-        self.radioGroup.addButton(self.radioLastDay)
-        self.radioGroup.addButton(self.radioLastWeek)
-        self.radioGroup.addButton(self.radioLastMonth)
-        self.radioGroup.addButton(self.radioLastQuarter)
-        self.radioGroup.addButton(self.radioAllPeriod)
         formLayout.addRow(self.radioCustom)
-        formLayout.addRow(self.radioLastDay)
-        formLayout.addRow(self.radioLastWeek)
-        formLayout.addRow(self.radioLastMonth)
-        formLayout.addRow(self.radioLastQuarter)
-        formLayout.addRow(self.radioAllPeriod)
+
+        # Add radio buttons for each month
+        for i in range(1, 13):
+            month_radio = QRadioButton(QDate.longMonthName(i))
+            self.radioGroup.addButton(month_radio)
+            self.radioButtons.append(month_radio)
+            formLayout.addRow(month_radio)
 
         # Connect radio button group
         self.radioGroup.buttonClicked.connect(self.onRadioButtonClicked)
@@ -134,20 +127,19 @@ class PeriodDialog(QDialog):
 
     def onSubmit(self):
         checkedButton = self.radioGroup.checkedButton()
-        if checkedButton:  # Ensure that a button is actually selected
+        if checkedButton:
             if checkedButton == self.radioCustom:
                 startDate = self.startDateEdit.date().toString(Qt.ISODate)
                 endDate = self.endDateEdit.date().toString(Qt.ISODate)
                 print(f"Custom period: {startDate} to {endDate}")
                 self.customPeriodSelected.emit(startDate, endDate)  # Emit the custom period signal
             else:
-                predefinedPeriod = checkedButton.text()
-                print(f"Predefined period: {predefinedPeriod}")
-                self.predefinedPeriodSelected.emit(predefinedPeriod)  # Emit the predefined period signal
+                month_name = checkedButton.text()
+                print(f"Predefined month selected: {month_name}")
+                self.predefinedPeriodSelected.emit(month_name)
         else:
             print("No period selection made.")
         self.close()
-
 
 # Custom Dialog for Selection
 class SelectionDialog(QDialog):
@@ -368,27 +360,19 @@ class ApplicationWindow(QMainWindow):
 
 
     def handlePredefinedPeriod(self, period):
-        # Get the current date
         current_date = pd.to_datetime("today")
 
-        if period == "Last Day":
-            end_date = current_date - pd.Timedelta(days=1)
-            start_date = end_date
-        elif period == "Last Week":
-            end_date = (current_date - pd.offsets.Week(weekday=6)).normalize()
-            start_date = end_date - pd.Timedelta(days=6)
-        elif period == "Last Month":
-            end_date = (current_date - pd.offsets.MonthBegin()).normalize() - pd.Timedelta(days=1)
-            start_date = end_date - pd.offsets.MonthBegin() + pd.Timedelta(days=1)
-        elif period == "Last Quarter":
-            end_date = (current_date - pd.offsets.QuarterBegin(startingMonth=1)).normalize() - pd.Timedelta(days=1)
-            start_date = end_date - pd.offsets.QuarterBegin(startingMonth=1) + pd.Timedelta(days=1)
-        elif period == "All Available Period":
-            # Use the full range of dates available in the dataset
-            start_date = df['From'].min()
-            end_date = df['To'].max()
+        # Check if the period is a month name
+        if period in [QDate.longMonthName(i) for i in range(1, 13)]:
+            # Find the numeric month for the selected period
+            month_num = [QDate.longMonthName(i) for i in range(1, 13)].index(period) + 1
+            
+            # Calculate the start and end dates for the selected month
+            year = current_date.year  # You can adjust this if you want a different year
+            start_date = pd.Timestamp(year, month_num, 1)
+            end_date = start_date + pd.offsets.MonthEnd()
         else:
-            # Default case if period is not recognized
+            # Handle custom period or add more conditions if needed
             start_date = None
             end_date = None
 
