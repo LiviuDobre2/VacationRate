@@ -91,6 +91,11 @@ class PeriodDialog(QDialog):
             self.radioButtons.append(month_radio)
             formLayout.addRow(month_radio)
 
+        # Add "All year" option
+        all_year_radio = QRadioButton("All year")
+        self.radioGroup.addButton(all_year_radio)
+        formLayout.addRow(all_year_radio)
+
         # Connect radio button group
         self.radioGroup.buttonClicked.connect(self.onRadioButtonClicked)
 
@@ -133,6 +138,9 @@ class PeriodDialog(QDialog):
                 endDate = self.endDateEdit.date().toString(Qt.ISODate)
                 print(f"Custom period: {startDate} to {endDate}")
                 self.customPeriodSelected.emit(startDate, endDate)  # Emit the custom period signal
+            elif checkedButton.text() == "All year":
+                print("All year selected.")
+                self.predefinedPeriodSelected.emit("All year")  # Emit "All year" as the selected period
             else:
                 month_name = checkedButton.text()
                 print(f"Predefined month selected: {month_name}")
@@ -360,15 +368,15 @@ class ApplicationWindow(QMainWindow):
 
 
     def handlePredefinedPeriod(self, period):
-        current_date = pd.to_datetime("today")
-
         # Check if the period is a month name
         if period in [QDate.longMonthName(i) for i in range(1, 13)]:
             # Find the numeric month for the selected period
             month_num = [QDate.longMonthName(i) for i in range(1, 13)].index(period) + 1
             
+            # Adjust the year based on the data in the Excel file
+            year = self.getExcelYear()
+
             # Calculate the start and end dates for the selected month
-            year = current_date.year  # You can adjust this if you want a different year
             start_date = pd.Timestamp(year, month_num, 1)
             end_date = start_date + pd.offsets.MonthEnd()
         else:
@@ -382,6 +390,17 @@ class ApplicationWindow(QMainWindow):
         print(f"Start date: {start_date}, End date: {end_date}")
         print("Current selections:", self.selections)
         self.createHistogram()  # Update the histogram after applying the new period filter
+
+    def getExcelYear(self):
+        # Retrieve the year from the first row of the Excel data
+        if not df.empty:
+            # Convert 'From' date to datetime and extract the year
+            first_row_date = pd.to_datetime(df.iloc[0]['From'])
+            return first_row_date.year
+        else:
+            # If DataFrame is empty, return the current year
+            return pd.Timestamp.now().year  # Get the current year
+
 
     
     def handleSelection(self, selections, category):
