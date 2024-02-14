@@ -11,7 +11,6 @@ from PyQt5.QtGui import QFont
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib.dates as mdates  
-import numpy as np
 import pandas as pd
 import os
 
@@ -91,13 +90,14 @@ class PeriodDialog(QDialog):
             self.radioButtons.append(month_radio)
             formLayout.addRow(month_radio)
 
-        # Add "All year" option
-        all_year_radio = QRadioButton("All year")
-        self.radioGroup.addButton(all_year_radio)
-        formLayout.addRow(all_year_radio)
-
         # Connect radio button group
         self.radioGroup.buttonClicked.connect(self.onRadioButtonClicked)
+
+        # Add radio button for "All Available Periods"
+        self.radioAllPeriods = QRadioButton("All Available Periods")
+        self.radioGroup.addButton(self.radioAllPeriods)
+        formLayout.addRow(self.radioAllPeriods)
+
 
         # Submit and Cancel buttons
         buttonsLayout = QHBoxLayout()
@@ -138,9 +138,6 @@ class PeriodDialog(QDialog):
                 endDate = self.endDateEdit.date().toString(Qt.ISODate)
                 print(f"Custom period: {startDate} to {endDate}")
                 self.customPeriodSelected.emit(startDate, endDate)  # Emit the custom period signal
-            elif checkedButton.text() == "All year":
-                print("All year selected.")
-                self.predefinedPeriodSelected.emit("All year")  # Emit "All year" as the selected period
             else:
                 month_name = checkedButton.text()
                 print(f"Predefined month selected: {month_name}")
@@ -331,6 +328,7 @@ class ApplicationWindow(QMainWindow):
 
         # Position the metrics frame after the UI is shown
         self.repositionMetricsFrame()
+
     
     def modifyButtonAppearance(self, button):
         button.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
@@ -368,38 +366,36 @@ class ApplicationWindow(QMainWindow):
 
 
     def handlePredefinedPeriod(self, period):
-        # Check if the period is a month name
-        if period in [QDate.longMonthName(i) for i in range(1, 13)]:
-            # Find the numeric month for the selected period
+        global df  # Make sure to use the global dataframe if needed
+
+        if period == "All Available Periods":
+            # If "All Available Periods" is selected, remove any period filters
+            self.selections['period'] = None
+            print("All available data will be displayed.")
+        else:
+            # Convert 'From' and 'To' columns to datetime if not already done
+            df['From'] = pd.to_datetime(df['From'])
+            df['To'] = pd.to_datetime(df['To'])
+
+            # Determine the month number for the selected period
             month_num = [QDate.longMonthName(i) for i in range(1, 13)].index(period) + 1
             
-            # Adjust the year based on the data in the Excel file
-            year = self.getExcelYear()
+            # Filter data to find the years available for the selected month
+            years_with_data = df[df['From'].dt.month == month_num]['From'].dt.year.unique()
+            if years_with_data.size > 0:
+                # Prefer the most recent year with data for the selected month
+                selected_year = max(years_with_data)
+                start_date = pd.Timestamp(year=selected_year, month=month_num, day=1)
+                end_date = start_date + pd.offsets.MonthEnd()
+                self.selections['period'] = (start_date, end_date)
+                print(f"Selected period: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
+            else:
+                print("No data available for the selected period.")
+                self.selections['period'] = None
 
-            # Calculate the start and end dates for the selected month
-            start_date = pd.Timestamp(year, month_num, 1)
-            end_date = start_date + pd.offsets.MonthEnd()
-        else:
-            # Handle custom period or add more conditions if needed
-            start_date = None
-            end_date = None
+        # After setting the period, update the histogram
+        self.createHistogram()
 
-        # Store the period as a tuple of (start_date, end_date)
-        self.selections['period'] = (start_date, end_date)
-        print(f"Predefined period received in main window: {period}")
-        print(f"Start date: {start_date}, End date: {end_date}")
-        print("Current selections:", self.selections)
-        self.createHistogram()  # Update the histogram after applying the new period filter
-
-    def getExcelYear(self):
-        # Retrieve the year from the first row of the Excel data
-        if not df.empty:
-            # Convert 'From' date to datetime and extract the year
-            first_row_date = pd.to_datetime(df.iloc[0]['From'])
-            return first_row_date.year
-        else:
-            # If DataFrame is empty, return the current year
-            return pd.Timestamp.now().year  # Get the current year
 
 
     
@@ -439,48 +435,101 @@ class ApplicationWindow(QMainWindow):
         new_right_position = self.canvas.width() - self.metricsFrame.width() - right_padding
         self.metricsFrame.move(new_right_position, top_padding)
 
-    def createHistogram(self):
-        filtered_df = self.filterData()
+    def determine_bin_size(self):
+        """Determine the bin size ('day', 'week', 'month') based on the selected period."""
+        if self.selections['period']:
+            start_date, end_date = self.selections['period']
+            delta = end_date - start_date
+            # Use days for comparison, avoiding ambiguous 'M' or 'Y' units
+            if delta.days <= 30:  # Approximating 1 month as 30 days
+                return 'day'
+            elif 30 < delta.days <= 90:  # Approximating 3 months as 90 days
+                return 'week'
+            else:
+                return 'month'
+        return 'month'  # Default bin size
 
-        # Check if filtered_df is empty or if 'From'/'To' columns have only NaN values
-        if filtered_df.empty or filtered_df['From'].isna().all() or filtered_df['To'].isna().all():
-            print("No data to display for the selected filters.")
-            self.displayMessage("No data to display for the selected filters")
-            return  # Exit the method
+    
 
-        # Convert 'From' and 'To' columns to datetime
+    def aggregate_data(self, filtered_df, bin_size):
+        """Aggregate data by expanding each entry to cover all days between 'From' and 'To', then summing up absence days according to bin size."""
+        
+        # First, ensure 'From' and 'To' are in datetime format
         filtered_df['From'] = pd.to_datetime(filtered_df['From'])
         filtered_df['To'] = pd.to_datetime(filtered_df['To'])
 
-        # Initialize a DataFrame to hold the counts for each month
-        # Initialize a DataFrame to hold the counts for each month
-        if not pd.isnull(filtered_df['From'].min()) and not pd.isnull(filtered_df['To'].max()):
-            start_date = filtered_df['From'].min().replace(day=1)
-            end_date = filtered_df['To'].max().replace(day=1) + pd.offsets.MonthEnd(1)
-            date_range = pd.date_range(start=start_date, end=end_date, freq='MS')
-            absence_counts = pd.DataFrame(index=date_range, columns=['AbsenceDays'])
-            absence_counts['AbsenceDays'] = 0
+        # Expand each absence record to include each day within its range
+        all_dates = []
+        for _, row in filtered_df.iterrows():
+            num_days = (row['To'] - row['From']).days + 1
+            daily_records = pd.date_range(start=row['From'], periods=num_days, freq='D')
+            for day in daily_records:
+                all_dates.append({'Date': day, 'AbsenceDays': 1})  # Assuming 1 absence day per day in range
+        
+        # Convert the list of dictionaries into a DataFrame
+        expanded_df = pd.DataFrame(all_dates)
 
-            # Populate absence_counts for each absence record
-            for _, row in filtered_df.iterrows():
-                start, end = row['From'], row['To']
-                while start <= end:
-                    month_start = start.replace(day=1)
-                    if month_start in absence_counts.index:
-                        next_month = month_start + pd.offsets.MonthBegin(1)
-                        days_in_month = (min(end, next_month - pd.Timedelta(days=1)) - start).days + 1
-                        absence_counts.loc[month_start, 'AbsenceDays'] += days_in_month
-                    start = next_month
+        if 'Date' not in expanded_df.columns:
+            print("Error: 'Date' column not found in expanded_df. Available columns:", expanded_df.columns)
+            return pd.DataFrame()  # Return an empty DataFrame or handle the error as appropriate
 
-            # Debug print to understand the state of absence_counts
-            print("Absence Counts:\n", absence_counts)
+        # Now, aggregate this expanded data frame by the selected bin size
+        # Assuming 'AbsenceDays' is the column you want to sum
+        if bin_size == 'day':
+            aggregated_df = expanded_df.groupby(expanded_df['Date'].dt.date)['AbsenceDays'].sum().reset_index()
+        elif bin_size == 'week':
+            # Group by week, summing only the 'AbsenceDays' column
+            aggregated_df = expanded_df.groupby(expanded_df['Date'].dt.to_period('W'))['AbsenceDays'].sum().reset_index()
+            aggregated_df['Date'] = aggregated_df['Date'].apply(lambda x: x.start_time)
+        elif bin_size == 'month':
+            # Group by month, summing only the 'AbsenceDays' column
+            aggregated_df = expanded_df.groupby(expanded_df['Date'].dt.to_period('M'))['AbsenceDays'].sum().reset_index()
+            aggregated_df['Date'] = aggregated_df['Date'].apply(lambda x: x.start_time)
 
-        # Plot the histogram if there are valid absence days
-        if not absence_counts['AbsenceDays'].isna().all():
-            self.plotHistogram(absence_counts)
+        return aggregated_df
+
+
+    def createHistogram(self):
+        filtered_df = self.filterData()
+        bin_size = self.determine_bin_size()
+        aggregated_data = self.aggregate_data(filtered_df, bin_size)
+
+        # Clear the previous figure
+        self.figure.clear()
+        ax = self.figure.add_subplot(111)
+
+        if not aggregated_data.empty:
+            # Dynamically adjust the bar width based on bin size
+            bar_width = {'day': 0.7, 'week': 5, 'month': 20}.get(bin_size, 0.7)
+            
+            # Plot the histogram
+            ax.bar(aggregated_data['Date'], aggregated_data['AbsenceDays'], width=bar_width, color='blue', alpha=0.7)
+
+            # Adjust x-axis formatting based on bin size
+            if bin_size == 'day':
+                ax.xaxis.set_major_locator(mdates.DayLocator())
+                ax.xaxis.set_major_formatter(mdates.DateFormatter('%d-%m-%Y'))
+            elif bin_size == 'week':
+                # Adjust for a more descriptive week format, e.g., start of week
+                ax.xaxis.set_major_locator(mdates.WeekdayLocator())
+                ax.xaxis.set_major_formatter(mdates.DateFormatter('%U - %Y'))
+            elif bin_size == 'month':
+                ax.xaxis.set_major_locator(mdates.MonthLocator())
+                ax.xaxis.set_major_formatter(mdates.DateFormatter('%B %Y'))
+
+            ax.figure.autofmt_xdate()  # Auto-format date labels
+
+            # Set titles and labels
+            ax.set_title('Absence Counts')
+            ax.set_xlabel('Period')
+            ax.set_ylabel('Total Absence Days')
         else:
-            print("No absence data for the selected filters.")
-            self.displayMessage("No absence data for the selected filters")
+            # Display message if no data
+            ax.text(0.5, 0.5, 'No data to display for the selected filters', horizontalalignment='center', verticalalignment='center', transform=ax.transAxes)
+
+        # Draw the canvas
+        self.canvas.draw()
+
 
     def displayMessage(self, message):
         # Clear the previous figure and display a message
@@ -510,32 +559,31 @@ class ApplicationWindow(QMainWindow):
         self.canvas.draw()
     
     def filterData(self):
-        # Start with the unfiltered DataFrame
+        # Start with the original DataFrame
+        global df  # Ensure you're using the global dataframe or replace with your dataframe variable
         filtered_df = df.copy()
-        print("Initial DataFrame:", filtered_df)  # Debug print
 
-        # Apply period filter
+        # Check if a period has been selected
         if self.selections['period']:
             start_date, end_date = self.selections['period']
-            if start_date and end_date:
-                # Filter the data to include only records within the selected period
-                filtered_df = filtered_df[(filtered_df['From'] >= start_date) & (filtered_df['To'] <= end_date)]
+            # Apply period filter only if it's not None
+            filtered_df = filtered_df[
+                (filtered_df['From'] >= start_date) & (filtered_df['To'] <= end_date) |
+                (filtered_df['From'] <= end_date) & (filtered_df['To'] >= start_date)
+            ]
 
-        # Filter the data based on selections
+        # Apply filters for other categories (department, project, employee, leave)
         for category, selection in self.selections.items():
-            if selection:  # If there are selections for this category
-                print(f"Applying filter for {category}: {selection}")  # Debug print
-                if category == 'department':
-                    filtered_df = filtered_df[filtered_df['Departament'].isin(selection)]
-                elif category == 'project':
-                    filtered_df = filtered_df[filtered_df['Project Name'].isin(selection)]
-                elif category == 'employee':
-                    filtered_df = filtered_df[filtered_df['Employee Name'].isin(selection)]
-                elif category == 'leave':
-                    filtered_df = filtered_df[filtered_df['Absence Type'].isin(selection)]
-                print(f"DataFrame after {category} filter:", filtered_df)  # Debug print
+            if selection and category in ['department', 'project', 'employee', 'leave']:
+                column_map = {
+                    'department': 'Departament',
+                    'project': 'Project Name',
+                    'employee': 'Employee Name',
+                    'leave': 'Absence Type'
+                }
+                filtered_column = column_map[category]
+                filtered_df = filtered_df[filtered_df[filtered_column].isin(selection)]
 
-        # Return the filtered DataFrame
         return filtered_df
 
 
