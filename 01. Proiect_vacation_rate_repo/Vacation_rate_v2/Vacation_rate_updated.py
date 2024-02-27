@@ -1,7 +1,7 @@
 import sys
 import os
 import pandas as pd
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
+from PyQt5.QtWidgets import (QStackedWidget, QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QPushButton, QLabel, QFrame,
                              QSizePolicy, QDateEdit, QRadioButton, QButtonGroup,
                              QFormLayout, QDialog, QListWidget, QListWidgetItem, 
@@ -13,13 +13,15 @@ from matplotlib.figure import Figure
 import matplotlib.dates as mdates  
 import pandas as pd
 import os
+import seaborn as sns
 
 
-
+#Ensure that your script's directory path handling is robust for different environments
 script_directory = os.path.dirname(os.path.abspath(__file__))
 excel_file_name = '02. VacationRateApp_Template_Export.xlsx'
 excel_file_path = os.path.join(script_directory, excel_file_name)
 
+# Load the dataset and extract unique values for filtering options
 df = pd.read_excel(excel_file_path)
 unique_departments = df["Departament"].unique().tolist()
 unique_project = df["Project Name"].unique().tolist()
@@ -28,7 +30,8 @@ unique_leave = df["Absence Type"].unique().tolist()
 
 print(df)
 
-# Stylesheet for modern look
+
+# Define a modern-looking stylesheet for the application
 stylesheet = """
     QMainWindow {
         background-color: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, stop:0 rgba(173, 216, 230, 255), stop:1 rgba(255, 255, 255, 255));
@@ -53,6 +56,7 @@ stylesheet = """
 """
 
 # Custom Dialog for Period Selection
+# This class allows users to select a reporting period for data visualization
 class PeriodDialog(QDialog):
     
     customPeriodSelected = pyqtSignal(str, str)  # Signal for custom period (start date, end date)
@@ -64,6 +68,7 @@ class PeriodDialog(QDialog):
         self.setupUI()
 
     def setupUI(self):
+        # Layout setup, including date pickers and period selection radio buttons
         layout = QVBoxLayout(self)
 
         # Date pickers for custom period
@@ -131,6 +136,7 @@ class PeriodDialog(QDialog):
             self.endDateEdit.setEnabled(False)
 
     def onSubmit(self):
+         # Handles submission, differentiating between custom and predefined periods
         checkedButton = self.radioGroup.checkedButton()
         if checkedButton:
             if checkedButton == self.radioCustom:
@@ -452,39 +458,34 @@ class ApplicationWindow(QMainWindow):
     
 
     def aggregate_data(self, filtered_df, bin_size):
-        """Aggregate data by expanding each entry to cover all days between 'From' and 'To', then summing up absence days according to bin size."""
-        
-        # First, ensure 'From' and 'To' are in datetime format
+        """Optimized data aggregation avoiding row-wise operations and minimizing date range expansion."""
+        if filtered_df.empty:
+            return pd.DataFrame()
+
+        # Ensure 'From' and 'To' are in datetime format
         filtered_df['From'] = pd.to_datetime(filtered_df['From'])
         filtered_df['To'] = pd.to_datetime(filtered_df['To'])
 
-        # Expand each absence record to include each day within its range
-        all_dates = []
-        for _, row in filtered_df.iterrows():
-            num_days = (row['To'] - row['From']).days + 1
-            daily_records = pd.date_range(start=row['From'], periods=num_days, freq='D')
-            for day in daily_records:
-                all_dates.append({'Date': day, 'AbsenceDays': 1})  # Assuming 1 absence day per day in range
-        
-        # Convert the list of dictionaries into a DataFrame
-        expanded_df = pd.DataFrame(all_dates)
+        # Generate a sequence of dates for each row and stack them all together
+        date_sequences = [pd.date_range(row['From'], row['To']).tolist() for index, row in filtered_df.iterrows()]
+        all_dates = [date for sublist in date_sequences for date in sublist]
 
-        if 'Date' not in expanded_df.columns:
-            print("Error: 'Date' column not found in expanded_df. Available columns:", expanded_df.columns)
-            return pd.DataFrame()  # Return an empty DataFrame or handle the error as appropriate
+        # Create a DataFrame from the expanded date ranges
+        expanded_df = pd.DataFrame(all_dates, columns=['Date'])
+        expanded_df['AbsenceDays'] = 1  # Assuming 1 absence day for each date
 
-        # Now, aggregate this expanded data frame by the selected bin size
-        # Assuming 'AbsenceDays' is the column you want to sum
+        # Group by the necessary frequency directly without setting index
         if bin_size == 'day':
-            aggregated_df = expanded_df.groupby(expanded_df['Date'].dt.date)['AbsenceDays'].sum().reset_index()
+            aggregated_df = expanded_df.groupby(expanded_df['Date'].dt.date)['AbsenceDays'].sum().reset_index(name='AbsenceDays')
         elif bin_size == 'week':
-            # Group by week, summing only the 'AbsenceDays' column
-            aggregated_df = expanded_df.groupby(expanded_df['Date'].dt.to_period('W'))['AbsenceDays'].sum().reset_index()
+            aggregated_df = expanded_df.groupby(expanded_df['Date'].dt.to_period('W'))['AbsenceDays'].sum().reset_index(name='AbsenceDays')
             aggregated_df['Date'] = aggregated_df['Date'].apply(lambda x: x.start_time)
         elif bin_size == 'month':
-            # Group by month, summing only the 'AbsenceDays' column
-            aggregated_df = expanded_df.groupby(expanded_df['Date'].dt.to_period('M'))['AbsenceDays'].sum().reset_index()
+            aggregated_df = expanded_df.groupby(expanded_df['Date'].dt.to_period('M'))['AbsenceDays'].sum().reset_index(name='AbsenceDays')
             aggregated_df['Date'] = aggregated_df['Date'].apply(lambda x: x.start_time)
+        else:
+            print("Invalid bin size.")
+            return pd.DataFrame()
 
         return aggregated_df
 
@@ -502,15 +503,14 @@ class ApplicationWindow(QMainWindow):
             # Dynamically adjust the bar width based on bin size
             bar_width = {'day': 0.7, 'week': 5, 'month': 20}.get(bin_size, 0.7)
             
-            # Plot the histogram
-            ax.bar(aggregated_data['Date'], aggregated_data['AbsenceDays'], width=bar_width, color='blue', alpha=0.7)
+            # Plot the histogram with the specified color
+            bars = ax.bar(aggregated_data['Date'], aggregated_data['AbsenceDays'], width=bar_width, color=(138/255, 199/255, 219/255), alpha=0.7)
 
             # Adjust x-axis formatting based on bin size
             if bin_size == 'day':
                 ax.xaxis.set_major_locator(mdates.DayLocator())
                 ax.xaxis.set_major_formatter(mdates.DateFormatter('%d-%m-%Y'))
             elif bin_size == 'week':
-                # Adjust for a more descriptive week format, e.g., start of week
                 ax.xaxis.set_major_locator(mdates.WeekdayLocator())
                 ax.xaxis.set_major_formatter(mdates.DateFormatter('%U - %Y'))
             elif bin_size == 'month':
@@ -523,12 +523,23 @@ class ApplicationWindow(QMainWindow):
             ax.set_title('Absence Counts')
             ax.set_xlabel('Period')
             ax.set_ylabel('Total Absence Days')
+
+            # Annotate each bin with its value
+            for bar in bars:
+                height = bar.get_height()
+                ax.annotate(f'{int(height)}',
+                            xy=(bar.get_x() + bar.get_width() / 2, height),
+                            xytext=(0, 3),  # 3 points vertical offset
+                            textcoords="offset points",
+                            ha='center', va='bottom')
+
         else:
             # Display message if no data
             ax.text(0.5, 0.5, 'No data to display for the selected filters', horizontalalignment='center', verticalalignment='center', transform=ax.transAxes)
 
         # Draw the canvas
         self.canvas.draw()
+
 
 
     def displayMessage(self, message):
