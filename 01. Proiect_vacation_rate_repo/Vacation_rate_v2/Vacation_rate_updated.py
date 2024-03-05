@@ -504,10 +504,10 @@ class ApplicationWindow(QMainWindow):
             # Dynamically adjust the bar width based on bin size
             bar_width = {'day': 0.7, 'week': 5, 'month': 20}.get(bin_size, 0.7)
             
-            # Plot the histogram with the specified color
-            bars = ax.bar(aggregated_data['Date'], aggregated_data['AbsenceDays'], width=bar_width, color=(173/255, 216/255, 230/255), alpha=0.7)
+            # Plot the histogram with the specified color and add a label for the blue bars
+            bars = ax.bar(aggregated_data['Date'], aggregated_data['AbsenceDays'], width=bar_width, color=(173/255, 216/255, 230/255), alpha=0.7, label='Absence Days Taken')
 
-            # Plotting the cumulative percentage
+            # Plotting the cumulative percentage and adding a label for the red line
             ax2.plot(aggregated_data['Date'], aggregated_data['CumulativePercentage'], color='red', marker='o', linestyle='-', label='Cumulative Days Taken (%)')
             ax2.set_ylabel('Cumulative Days Taken (%)', color='red')
             ax2.tick_params(axis='y', colors='red')
@@ -541,14 +541,16 @@ class ApplicationWindow(QMainWindow):
             ax.set_xlabel('Period')
             ax.set_ylabel('Total Absence Days')
 
-            # Adding legend to the right side of the plot
-            ax2.legend(loc='upper left')
+            # Combining legends from both axes
+            handles, labels = ax.get_legend_handles_labels()
+            handles2, labels2 = ax2.get_legend_handles_labels()
+            ax2.legend(handles + handles2, labels + labels2, loc='upper left')
 
         else:
             # Display message if no data
             ax.text(0.5, 0.5, 'No data to display for the selected filters', horizontalalignment='center', verticalalignment='center', transform=ax.transAxes)
 
-        self.figure.subplots_adjust(left=0.07, right=0.95, top=0.95, bottom=0.15)  
+        self.figure.subplots_adjust(left=0.07, right=0.95, top=0.95, bottom=0.15)
         self.canvas.draw()
 
 
