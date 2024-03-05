@@ -307,21 +307,6 @@ class ApplicationWindow(QMainWindow):
         # Create and display the histogram
         self.createHistogram()
 
-        # Frame for the metrics overlay
-        self.metricsFrame = QFrame(self.canvas)
-        metricsLayout = QVBoxLayout(self.metricsFrame)
-        self.metricsFrame.setLayout(metricsLayout)
-        self.metricsFrame.setFrameStyle(QFrame.StyledPanel)
-        self.metricsFrame.setStyleSheet("background-color: rgba(255, 255, 255, 128);")  # Semi-transparent background
-        self.metricsFrame.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Maximum)
-
-        # Create a QLabel for each metric and add it to the metrics layout
-        metrics = ['Metric 1: XXX', 'Metric 2: XXX', 'Metric 3: XXX']  # Example metrics
-        for metric in metrics:
-            label = QLabel(metric)
-            label.setAlignment(Qt.AlignTop | Qt.AlignRight)
-            metricsLayout.addWidget(label)
-
         # Combine layouts with a stretch factor for the right panel to take up more space
         mainLayout.addLayout(leftPanel, 1)
         mainLayout.addLayout(rightPanel, 4)
@@ -332,8 +317,6 @@ class ApplicationWindow(QMainWindow):
         self.setCentralWidget(centralWidget)
         self.show()
 
-        # Position the metrics frame after the UI is shown
-        self.repositionMetricsFrame()
 
     
     def modifyButtonAppearance(self, button):
@@ -432,14 +415,7 @@ class ApplicationWindow(QMainWindow):
     def resizeEvent(self, event):
         QMainWindow.resizeEvent(self, event)
         # Reposition the metrics frame when the main window is resized
-        self.repositionMetricsFrame()
 
-    def repositionMetricsFrame(self):
-        # Calculate the right position with some padding from the right edge
-        right_padding = 10  # Adjust this value to increase or decrease the right padding
-        top_padding = 10  # Adjust this value to increase or decrease the top padding
-        new_right_position = self.canvas.width() - self.metricsFrame.width() - right_padding
-        self.metricsFrame.move(new_right_position, top_padding)
 
     def determine_bin_size(self):
         """Determine the bin size ('day', 'week', 'month') based on the selected period."""
@@ -458,36 +434,60 @@ class ApplicationWindow(QMainWindow):
     
 
     def aggregate_data(self, filtered_df, bin_size):
-        """Optimized data aggregation avoiding row-wise operations and minimizing date range expansion."""
         if filtered_df.empty:
             return pd.DataFrame()
 
-        # Ensure 'From' and 'To' are in datetime format
+        # Convert 'From' and 'To' to datetime format
         filtered_df['From'] = pd.to_datetime(filtered_df['From'])
         filtered_df['To'] = pd.to_datetime(filtered_df['To'])
 
-        # Generate a sequence of dates for each row and stack them all together
+        # Generate a sequence of dates for each row regardless of absence type, marking each as an absence day
         date_sequences = [pd.date_range(row['From'], row['To']).tolist() for index, row in filtered_df.iterrows()]
         all_dates = [date for sublist in date_sequences for date in sublist]
+        all_absences_df = pd.DataFrame(all_dates, columns=['Date'])
+        all_absences_df['AbsenceDays'] = 1  # Mark each day as an absence day
 
-        # Create a DataFrame from the expanded date ranges
-        expanded_df = pd.DataFrame(all_dates, columns=['Date'])
-        expanded_df['AbsenceDays'] = 1  # Assuming 1 absence day for each date
+        # Aggregate all absence days based on the bin_size
+        aggregated_all_df = self.aggregate_absences(all_absences_df, bin_size)
 
-        # Group by the necessary frequency directly without setting index
-        if bin_size == 'day':
-            aggregated_df = expanded_df.groupby(expanded_df['Date'].dt.date)['AbsenceDays'].sum().reset_index(name='AbsenceDays')
-        elif bin_size == 'week':
-            aggregated_df = expanded_df.groupby(expanded_df['Date'].dt.to_period('W'))['AbsenceDays'].sum().reset_index(name='AbsenceDays')
-            aggregated_df['Date'] = aggregated_df['Date'].apply(lambda x: x.start_time)
-        elif bin_size == 'month':
-            aggregated_df = expanded_df.groupby(expanded_df['Date'].dt.to_period('M'))['AbsenceDays'].sum().reset_index(name='AbsenceDays')
-            aggregated_df['Date'] = aggregated_df['Date'].apply(lambda x: x.start_time)
-        else:
-            print("Invalid bin size.")
-            return pd.DataFrame()
+        # Now, specifically filter for 'Annual Leave' to calculate the cumulative days taken for 'Annual Leave' only
+        annual_leave_df = filtered_df[filtered_df['Absence Type'] == 'Annual leave'].copy()
+        annual_leave_sequences = [pd.date_range(row['From'], row['To']).tolist() for index, row in annual_leave_df.iterrows()]
+        annual_leave_dates = [date for sublist in annual_leave_sequences for date in sublist]
+        annual_leave_absences_df = pd.DataFrame(annual_leave_dates, columns=['Date'])
+        annual_leave_absences_df['AbsenceDays'] = 1
+
+        # Aggregate 'Annual Leave' days based on the bin_size for cumulative calculation
+        aggregated_annual_leave_df = self.aggregate_absences(annual_leave_absences_df, bin_size)
+
+        # Calculate cumulative 'AbsenceDays' for 'Annual Leave' only
+        aggregated_annual_leave_df['CumulativeAbsenceDays'] = aggregated_annual_leave_df['AbsenceDays'].cumsum()
+
+        # Total entitlement and used days for 'Annual Leave'
+        total_entitlement = filtered_df['Sum of Entitlement for 2023'].sum()
+
+        # Calculate cumulative percentage based on cumulative 'Annual Leave' days taken
+        aggregated_annual_leave_df['CumulativePercentage'] = (aggregated_annual_leave_df['CumulativeAbsenceDays'] / total_entitlement) * 100
+
+        # Combine the aggregated data for all absences with the cumulative data for 'Annual Leave'
+        aggregated_df = aggregated_all_df.merge(aggregated_annual_leave_df[['Date', 'CumulativePercentage']], on='Date', how='left').fillna(method='ffill')
 
         return aggregated_df
+
+    def aggregate_absences(self, absences_df, bin_size):
+        """Aggregate absence days based on the bin_size."""
+        if bin_size == 'day':
+            aggregated_df = absences_df.groupby(absences_df['Date'].dt.date)['AbsenceDays'].sum().reset_index(name='AbsenceDays')
+        elif bin_size == 'week':
+            aggregated_df = absences_df.groupby(absences_df['Date'].dt.to_period('W'))['AbsenceDays'].sum().reset_index(name='AbsenceDays')
+            aggregated_df['Date'] = aggregated_df['Date'].apply(lambda x: x.start_time.date())
+        elif bin_size == 'month':
+            aggregated_df = absences_df.groupby(absences_df['Date'].dt.to_period('M'))['AbsenceDays'].sum().reset_index(name='AbsenceDays')
+            aggregated_df['Date'] = aggregated_df['Date'].apply(lambda x: x.start_time.date())
+        return aggregated_df
+
+
+
 
 
     def createHistogram(self):
@@ -498,14 +498,20 @@ class ApplicationWindow(QMainWindow):
         # Clear the previous figure
         self.figure.clear()
         ax = self.figure.add_subplot(111)
+        ax2 = ax.twinx()  # Create a secondary y-axis for cumulative percentages
 
         if not aggregated_data.empty:
             # Dynamically adjust the bar width based on bin size
             bar_width = {'day': 0.7, 'week': 5, 'month': 20}.get(bin_size, 0.7)
             
             # Plot the histogram with the specified color
-            bars = ax.bar(aggregated_data['Date'], aggregated_data['AbsenceDays'], width=bar_width, color=(138/255, 199/255, 219/255), alpha=0.7)
+            bars = ax.bar(aggregated_data['Date'], aggregated_data['AbsenceDays'], width=bar_width, color=(173/255, 216/255, 230/255), alpha=0.7)
 
+            # Plotting the cumulative percentage
+            ax2.plot(aggregated_data['Date'], aggregated_data['CumulativePercentage'], color='red', marker='o', linestyle='-', label='Cumulative Days Taken (%)')
+            ax2.set_ylabel('Cumulative Days Taken (%)', color='red')
+            ax2.tick_params(axis='y', colors='red')
+            
             # Adjust x-axis formatting based on bin size
             if bin_size == 'day':
                 ax.xaxis.set_major_locator(mdates.DayLocator())
@@ -516,13 +522,7 @@ class ApplicationWindow(QMainWindow):
             elif bin_size == 'month':
                 ax.xaxis.set_major_locator(mdates.MonthLocator())
                 ax.xaxis.set_major_formatter(mdates.DateFormatter('%B %Y'))
-
             ax.figure.autofmt_xdate()  # Auto-format date labels
-
-            # Set titles and labels
-            ax.set_title('Absence Counts')
-            ax.set_xlabel('Period')
-            ax.set_ylabel('Total Absence Days')
 
             # Annotate each bin with its value
             for bar in bars:
@@ -533,11 +533,22 @@ class ApplicationWindow(QMainWindow):
                             textcoords="offset points",
                             ha='center', va='bottom')
 
+            # Add a grid for better readability
+            ax.grid(True, which='both', linestyle='--', linewidth=0.5, color='grey', alpha=0.5)
+
+            # Set titles and labels
+            ax.set_title('Absence Counts')
+            ax.set_xlabel('Period')
+            ax.set_ylabel('Total Absence Days')
+
+            # Adding legend to the right side of the plot
+            ax2.legend(loc='upper left')
+
         else:
             # Display message if no data
             ax.text(0.5, 0.5, 'No data to display for the selected filters', horizontalalignment='center', verticalalignment='center', transform=ax.transAxes)
 
-        # Draw the canvas
+        self.figure.subplots_adjust(left=0.07, right=0.95, top=0.95, bottom=0.15)  
         self.canvas.draw()
 
 
