@@ -1,8 +1,9 @@
 import sys
 import os
+from matplotlib import pyplot as plt
 import pandas as pd
-from PyQt5.QtWidgets import (QStackedWidget, QApplication, QMainWindow, QWidget, QVBoxLayout,
-                             QHBoxLayout, QPushButton, QLabel, QFrame,
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
+                             QHBoxLayout, QPushButton, QLabel,
                              QSizePolicy, QDateEdit, QRadioButton, QButtonGroup,
                              QFormLayout, QDialog, QListWidget, QListWidgetItem, 
                              QAbstractItemView, QLineEdit,QTabWidget, QTableWidget, QTableWidgetItem, QVBoxLayout)
@@ -12,12 +13,11 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib.dates as mdates  
 import pandas as pd
-import seaborn as sns
 import calendar
 import datetime
 from datetime import date
 import holidays
-from PyQt5.QtGui import QColor, QBrush
+from PyQt5.QtGui import QColor
 
 #Ensure that your script's directory path handling is robust for different environments
 script_directory = os.path.dirname(os.path.abspath(__file__))
@@ -542,7 +542,7 @@ class ApplicationWindow(QMainWindow):
             'period': None
         }
         self.title = 'Vacation Rate App'
-        self.currentDialog = None  # Add this line
+        self.currentDialog = None  
         self.initUI()
 
 
@@ -553,77 +553,78 @@ class ApplicationWindow(QMainWindow):
 
     def initUI(self):
         self.setWindowTitle(self.title)
-        self.setGeometry(100, 100, 1200, 760)  # Adjust the size as needed
-        
+        self.setGeometry(100, 100, 1200, 760)  # Window size
+
         # Create Menu Bar
         menubar = self.menuBar()
         viewMenu = menubar.addMenu('View')
         downloadMenu = menubar.addMenu('Download')
         helpMenu = menubar.addMenu('Help')
 
-        self.openMonthlyTableButton = QPushButton('Monthly Data')
-        self.openMonthlyTableButton.clicked.connect(self.openMonthlyTable)
-        self.modifyButtonAppearance(self.openMonthlyTableButton)  # Call a function to modify button appearance
         # Main layout
         mainLayout = QHBoxLayout()
-        
+
         # Left panel for filter buttons
         leftPanel = QVBoxLayout()
-        leftPanel.addWidget(self.openMonthlyTableButton)
 
-        # Create buttons
+        # Setup filter buttons
+        self.openMonthlyTableButton = QPushButton('Monthly Data')
+        self.openMonthlyTableButton.clicked.connect(self.openMonthlyTable)
+        self.modifyButtonAppearance(self.openMonthlyTableButton)
+
         self.periodButton = QPushButton('Period')
         self.periodButton.clicked.connect(self.showPeriodDialog)
-        self.modifyButtonAppearance(self.periodButton)  # Call a function to modify button appearance
-
         self.departmentButton = QPushButton('Department')
         self.departmentButton.clicked.connect(lambda: self.showSelectionDialog(unique_departments, 'Select Department'))
-        self.modifyButtonAppearance(self.departmentButton)  # Call a function to modify button appearance
-
         self.projectButton = QPushButton('Project')
         self.projectButton.clicked.connect(lambda: self.showSelectionDialog(unique_project, 'Select Project'))
-        self.modifyButtonAppearance(self.projectButton)  # Call a function to modify button appearance
-
         self.employeeButton = QPushButton('Employee')
         self.employeeButton.clicked.connect(lambda: self.showSelectionDialog(unique_employee, 'Select Employee'))
-        self.modifyButtonAppearance(self.employeeButton)  # Call a function to modify button appearance
-
         self.typeOfLeaveButton = QPushButton('Type of Leave')
         self.typeOfLeaveButton.clicked.connect(lambda: self.showSelectionDialog(unique_leave, 'Select Type of Leave'))
-        self.modifyButtonAppearance(self.typeOfLeaveButton)  # Call a function to modify button appearance
 
-        # List of buttons
+        # Add buttons to the layout
         buttons = [
-            self.departmentButton,
-            self.projectButton,
-            self.periodButton,
-            self.employeeButton,
-            self.typeOfLeaveButton
+            self.openMonthlyTableButton, self.periodButton, self.departmentButton,
+            self.projectButton, self.employeeButton, self.typeOfLeaveButton
         ]
-
         for button in buttons:
-            button.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+            self.modifyButtonAppearance(button)
             leftPanel.addWidget(button)
 
-        # Right panel for graph and metrics overlay
+        # Right panel for the graph and metrics, now including a tabbed interface
         rightPanel = QVBoxLayout()
+        self.tabWidget = QTabWidget()
+        self.histogramTab = QWidget()
+        self.doughnutChartTab = QWidget()
+        self.tabWidget.addTab(self.histogramTab, "Histogram")
+        self.tabWidget.addTab(self.doughnutChartTab, "Doughnut Chart")
+
+        # Setup layouts for the histogram and the doughnut chart tabs
+        self.histogramLayout = QVBoxLayout(self.histogramTab)
+        self.doughnutChartLayout = QVBoxLayout(self.doughnutChartTab)
+
+        # Setup the histogram tab with a matplotlib canvas
         self.figure = Figure()
         self.canvas = FigureCanvas(self.figure)
-        self.canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        rightPanel.addWidget(self.canvas)
-        
-        # Create and display the histogram
-        self.createHistogram()
+        self.histogramLayout.addWidget(self.canvas)
 
-        # Combine layouts with a stretch factor for the right panel to take up more space
+        # No need to setup the doughnut chart here; it will be initialized in createDoughnutChart()
+
+        rightPanel.addWidget(self.tabWidget)
+
+        # Combine left and right panels into the main layout
         mainLayout.addLayout(leftPanel, 1)
         mainLayout.addLayout(rightPanel, 4)
-        
+
         # Set the central widget and show the main window
         centralWidget = QWidget()
         centralWidget.setLayout(mainLayout)
         self.setCentralWidget(centralWidget)
+        self.createHistogram()
+        self.createDoughnutChart()
         self.show()
+
 
 
     
@@ -659,7 +660,8 @@ class ApplicationWindow(QMainWindow):
         self.selections['period'] = (start_date, end_date)
         print(f"Custom period received in main window: {start_date} to {end_date}")
         print("Current selections:", self.selections)
-        self.createHistogram()  
+        self.createHistogram() 
+        self.createDoughnutChart() 
 
 
     def handlePredefinedPeriod(self, period):
@@ -692,6 +694,7 @@ class ApplicationWindow(QMainWindow):
 
         # After setting the period, update the histogram
         self.createHistogram()
+        self.createDoughnutChart()
 
 
 
@@ -710,6 +713,8 @@ class ApplicationWindow(QMainWindow):
             print(f"{category_key} selected: {selections}")
         print("Current selections:", self.selections)
         self.createHistogram()
+        self.createDoughnutChart()
+
 
 
     def showSelectionDialog(self, options, title):
@@ -796,6 +801,51 @@ class ApplicationWindow(QMainWindow):
 
 
 
+    def createDoughnutChart(self):
+        filtered_df = self.filterData()
+
+        # Aggregate the leave types
+        leave_counts = filtered_df.groupby('Absence Type')['Att./abs. days'].sum()
+
+        # Labels for the pie chart
+        labels = leave_counts.index.tolist()
+
+        # Values for each segment
+        x = leave_counts.values.tolist()
+
+        # Create a new Figure for the pie chart
+        pie_figure = Figure(figsize=(6, 6))
+        pie_canvas = FigureCanvas(pie_figure)
+        ax = pie_figure.add_subplot(111)
+
+        # Create the pie chart with specified design
+        patches, texts, pcts = ax.pie(
+            x, labels=labels, autopct='%.1f%%',
+            wedgeprops={'linewidth': 3.0, 'edgecolor': 'white'},
+            textprops={'size': 'x-large', 'weight': 'bold', 'color': 'black'},
+            startangle=90)
+
+        # Set the title of the pie chart
+        ax.set_title('Leave Type Distribution', fontsize=18, color='black')
+
+        # For each wedge, set the corresponding text label color to black (or you can match it to the wedge's face color)
+        for i, patch in enumerate(patches):
+            texts[i].set_color('black')
+
+        # Set percentage text color to white and texts to bold
+        plt.setp(pcts, color='white', weight='bold')
+        plt.setp(texts, fontweight=600)
+
+        # Ensure the layout is tight so everything fits without overlap
+        pie_figure.tight_layout()
+
+        # Clear the existing layout in the doughnut chart tab and add the new canvas
+        for i in reversed(range(self.doughnutChartLayout.count())):
+            widget_to_remove = self.doughnutChartLayout.itemAt(i).widget()
+            self.doughnutChartLayout.removeWidget(widget_to_remove)
+            widget_to_remove.setParent(None)
+
+        self.doughnutChartLayout.addWidget(pie_canvas)
 
 
     def createHistogram(self):
