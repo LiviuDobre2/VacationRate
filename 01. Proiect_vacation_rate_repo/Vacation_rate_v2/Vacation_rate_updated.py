@@ -15,6 +15,7 @@ import pandas as pd
 import seaborn as sns
 import calendar
 import datetime
+from datetime import date
 import holidays
 from PyQt5.QtGui import QColor, QBrush
 
@@ -240,12 +241,13 @@ class MonthlyTableWindow(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Monthly Data")
+        self.current_month = date.today().month
+        self.current_year = 2024  # Assuming the initial year
         self.tableWidget = self.createMonthlyTable()
         layout = QVBoxLayout(self)
         self.resize(1600, 400)  # Adjust the width and height as needed
         self.setLayout(layout)
-        self.current_month = 1  
-        self.current_year = 2024  # Assuming the initial year
+
         previous_month = QDate(self.current_year, self.current_month, 1).addMonths(-1).toString("MMMM")
         next_month = QDate(self.current_year, self.current_month, 1).addMonths(1).toString("MMMM")
 
@@ -287,8 +289,8 @@ class MonthlyTableWindow(QDialog):
                 # Extract relevant information from the row
                 employee_name = row['Employee Name']
                 from_date = row['From'].day  # Extract day from 'From' column
-                absence_days = row['Att./abs. days']  # Replace 'Att./abs. days' with the actual column name containing absence days information
-                absence_type = row['Absence Type']  # Replace 'Absence Type' with the actual column name containing absence type information
+                absence_days = row['Att./abs. days']  # Extract absence day from specified collumn
+                absence_type = row['Absence Type']  # Extract absence type from specified collumn
                 absence_list.append(absence_days)
                 absence_type_list.append(absence_type)
                 # If the day is not already in the month_data dictionary, initialize it
@@ -364,7 +366,7 @@ class MonthlyTableWindow(QDialog):
                             self.tableWidget.setItem(row_index, column_index+i, cell_item)
         ro_holidays = self.get_national_holidays(self.current_year,self.current_month)
 
-        light_grey = QColor(211,211,211)  # Adjust the RGB values for the desired shade of green
+        light_grey = QColor(211,211,211)  # Adjust the RGB values for the desired shade of gray
 
         for row_index, employee_name in enumerate(ordered_names, start=1):
             for i in range(1, num_days + 1):
@@ -421,12 +423,14 @@ class MonthlyTableWindow(QDialog):
         if self.current_month < 1:
             self.current_month = 12
             self.current_year -= 1
+        # Modify the previous and next buttons with correct months
         current_month = QDate(self.current_year, self.current_month, 1).toString("MMMM")            
         self.currentMonthLabel.setText(current_month)
         previous_month = QDate(self.current_year, self.current_month, 1).addMonths(-1).toString("MMMM")
         self.prevButton.setText(previous_month)
         next_month = QDate(self.current_year, self.current_month, 1).addMonths(+1).toString("MMMM")
         self.nextButton.setText(next_month)
+        # Update the table with data for the next month
         self.updateTable()
         
     def showNextMonth(self):
@@ -434,6 +438,7 @@ class MonthlyTableWindow(QDialog):
         if self.current_month > 12:
             self.current_month = 1
             self.current_year += 1
+        # Modify the previous and next buttons with correct months
         previous_month = QDate(self.current_year, self.current_month, 1).addMonths(-1).toString("MMMM")
         self.prevButton.setText(previous_month)
         current_month = QDate(self.current_year, self.current_month, 1).toString("MMMM")            
@@ -445,27 +450,85 @@ class MonthlyTableWindow(QDialog):
 
     def createMonthlyTable(self):
         tableWidget = QTableWidget()
-
-        # Extract month and year from the 'From' column
-        df['Month'] = df['From'].dt.month
-        df['Year'] = df['From'].dt.year
-
-        # Pivot the DataFrame to have every employee as rows and days of the month as columns
-        pivot_table = df.pivot_table(index='Employee Name', columns=df['From'].dt.day, values='Att./abs. days', aggfunc='sum', fill_value=0)
-
-        # Set row names as employee names
-        row_names = pivot_table.index.tolist()
+        num_days = calendar.monthrange(self.current_year, self.current_month)[1]
+        print(num_days)
+        tableWidget.setColumnCount(num_days + 1)
+        tableWidget.setRowCount(11)
         headers = [str(day) for day in range(1, 31)]  # Assuming maximum 31 days in a month
-        tableWidget.setColumnCount(len(headers))
-        tableWidget.setHorizontalHeaderLabels(headers)
 
-        # Populate the table with absence days for each day and each employee
-        for row_index, employee in enumerate(row_names):
-            tableWidget.insertRow(row_index)
-            for col_index, absence_days in enumerate(pivot_table.loc[employee]):
-                tableWidget.setItem(row_index, col_index + 1, QTableWidgetItem(str(absence_days)))
+        tableWidget.setHorizontalHeaderLabels(headers)
+        light_blue = QColor(173, 216, 230)
+
+        # Color the first two rows into light blue
+
+        # Populate the table with data for the current month and year
+        month_data, absence_list, absence_type_list = self.get_monthly_data(self.current_year, self.current_month)
+        month_name = QDate.longMonthName(self.current_month)
+        tableWidget.setHorizontalHeaderItem(0, QTableWidgetItem("Employee"))
+        tableWidget.setVerticalHeaderItem(0, QTableWidgetItem(month_name))
+        for i in range(1,11):
+            tableWidget.setVerticalHeaderItem(i, QTableWidgetItem(str(i)))   
+        
+        for i in range(1, num_days + 1):
+            date = datetime.date(self.current_year, self.current_month, i)
+            week_number = date.isocalendar()[1]  # Get the ISO week number
+            week_str = f"CW{week_number:02d}"  # Format the week number
+            tableWidget.setHorizontalHeaderItem(i, QTableWidgetItem(week_str))
+        for i in range(1, num_days + 1):
+            date = datetime.date(self.current_year, self.current_month, i)
+            day_number = str(i)
+            day_name = date.strftime("%A")  # Get the full name of the day
+            header_text = f"{day_number}\n{day_name}"
+            header_item = QTableWidgetItem(header_text)
+            tableWidget.setItem(0, i, header_item)
+            tableWidget.resizeRowsToContents()
+        seen_keys = set()
+        ordered_names = []
+
+        for inner_dict in month_data.values():
+            for key in inner_dict.keys():
+                if key not in seen_keys:
+                    ordered_names.append(key)
+                    seen_keys.add(key)
+        print(ordered_names)
+        for row_index, employee_name in enumerate(ordered_names, start=1):
+            tableWidget.setItem(row_index,0,QTableWidgetItem(employee_name.strip()))
+        # Update the table with the retrieved data
+        for day, inner_dict in month_data.items():
+            for employee_name, (absence_days, absence_type) in inner_dict.items():
+                employee_name = employee_name.strip()  # Trim whitespace from employee name
+                # Find the row index corresponding to the employee name
+                items = tableWidget.findItems(employee_name, Qt.MatchExactly)
+                if items:
+                    row_index = items[0].row()
+                    # Calculate the column index based on the day
+                    column_index = day
+                    # Set the absence days in the table cell
+                    for i in range(int(absence_days)):
+                        if column_index + i <= num_days:  # Ensure it doesn't exceed the maximum day
+                            color, _ = self.get_absence_type_color(absence_type)
+                            cell_item = QTableWidgetItem(self.get_absence_letter(absence_type))
+                            cell_item.setBackground(color)
+                            tableWidget.setItem(row_index, column_index+i, cell_item)
+        ro_holidays = self.get_national_holidays(self.current_year,self.current_month)
+
+        light_grey = QColor(211,211,211)  # Adjust the RGB values for the desired shade of gray
+
+        for row_index, employee_name in enumerate(ordered_names, start=1):
+            for i in range(1, num_days + 1):
+                if QDate(self.current_year, self.current_month, i) in ro_holidays:
+                    cell_item = QTableWidgetItem('B')
+                    cell_item.setBackground(light_grey)
+                    tableWidget.setItem(row_index, i, cell_item)
+
+        for col in range(tableWidget.columnCount()):
+            item = tableWidget.item(0, col)
+            if item is None:
+                item = QTableWidgetItem()
+                tableWidget.setItem(0, col, item)
+            item.setBackground(light_blue)
         tableWidget.resizeColumnsToContents()
-        tableWidget.resizeRowsToContents()
+        tableWidget.repaint()
         return tableWidget
     
 class ApplicationWindow(QMainWindow):
