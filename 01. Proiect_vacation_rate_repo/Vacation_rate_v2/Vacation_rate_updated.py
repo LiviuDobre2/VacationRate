@@ -275,11 +275,20 @@ class MonthlyTableWindow(QDialog):
         # Connect button clicks to slots
         self.prevButton.clicked.connect(self.showPreviousMonth)
         self.nextButton.clicked.connect(self.showNextMonth)
-
+    def getSelection(self):
+        return ex.selections
     def get_monthly_data(self, year, month):
+        filtered_data= self.getSelection()
         # Filter the DataFrame for the specified year and month
         monthly_data = df[(df['From'].dt.year == year) & (df['From'].dt.month == month)]
-
+        if filtered_data['employee'] is not None:
+            monthly_data=monthly_data[monthly_data['Employee Name'].isin(filtered_data['employee'])]
+        else: 
+            if filtered_data['project'] is not None:
+                monthly_data=monthly_data[monthly_data['Project Name'].isin(filtered_data['project'])]
+            else:
+                if filtered_data['department'] is not None:
+                    monthly_data = monthly_data[monthly_data['Departament'].isin(filtered_data['department'])]
         if not monthly_data.empty: 
             month_data = {}
             absence_list = []
@@ -451,7 +460,6 @@ class MonthlyTableWindow(QDialog):
     def createMonthlyTable(self):
         tableWidget = QTableWidget()
         num_days = calendar.monthrange(self.current_year, self.current_month)[1]
-        print(num_days)
         tableWidget.setColumnCount(num_days + 1)
         tableWidget.setRowCount(11)
         headers = [str(day) for day in range(1, 31)]  # Assuming maximum 31 days in a month
@@ -490,7 +498,6 @@ class MonthlyTableWindow(QDialog):
                 if key not in seen_keys:
                     ordered_names.append(key)
                     seen_keys.add(key)
-        print(ordered_names)
         for row_index, employee_name in enumerate(ordered_names, start=1):
             tableWidget.setItem(row_index,0,QTableWidgetItem(employee_name.strip()))
         # Update the table with the retrieved data
