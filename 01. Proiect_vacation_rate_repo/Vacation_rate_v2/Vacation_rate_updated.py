@@ -26,6 +26,9 @@ excel_file_path = os.path.join(script_directory, excel_file_name)
 
 # Load the dataset and extract unique values for filtering options
 df = pd.read_excel(excel_file_path)
+# Ensuring 'From' and 'To' columns are in datetime format right after loading
+df['From'] = pd.to_datetime(df['From'])
+df['To'] = pd.to_datetime(df['To'])
 unique_departments = df["Departament"].unique().tolist()
 unique_project = df["Project Name"].unique().tolist()
 unique_employee = df["Employee Name"].unique().tolist()
@@ -753,49 +756,51 @@ class ApplicationWindow(QMainWindow):
 
     
 
-    def aggregate_data(self, filtered_df, bin_size):
+    def aggregate_data(self, bin_size):
+        # Use filterData with only_annual_leave=False for general absence aggregation
+        filtered_df = self.filterData(only_annual_leave=False)
+
         if filtered_df.empty:
             return pd.DataFrame()
 
-        # Convert 'From' and 'To' to datetime format
+        # Convert 'From' and 'To' to datetime format for general aggregation
         filtered_df['From'] = pd.to_datetime(filtered_df['From'])
         filtered_df['To'] = pd.to_datetime(filtered_df['To'])
 
-        # Generate a sequence of dates for each row regardless of absence type, marking each as an absence day
+        # Generate a sequence of dates for each absence entry
         date_sequences = [pd.date_range(row['From'], row['To']).tolist() for index, row in filtered_df.iterrows()]
         all_dates = [date for sublist in date_sequences for date in sublist]
         all_absences_df = pd.DataFrame(all_dates, columns=['Date'])
-        all_absences_df['AbsenceDays'] = 1  # Mark each day as an absence day
+        all_absences_df['AbsenceDays'] = 1
 
         # Aggregate all absence days based on the bin_size
         aggregated_all_df = self.aggregate_absences(all_absences_df, bin_size)
 
-        # Now, specifically filter for 'Annual Leave' to calculate the cumulative days taken for 'Annual Leave' only
-        annual_leave_df = filtered_df[filtered_df['Absence Type'] == 'Annual leave'].copy()
-        annual_leave_sequences = [pd.date_range(row['From'], row['To']).tolist() for index, row in annual_leave_df.iterrows()]
+        # Use filterData with only_annual_leave=True for "Annual leave" specific aggregation
+        filtered_annual_leave_df = self.filterData(only_annual_leave=True)
+        annual_leave_sequences = [pd.date_range(row['From'], row['To']).tolist() for index, row in filtered_annual_leave_df.iterrows()]
         annual_leave_dates = [date for sublist in annual_leave_sequences for date in sublist]
         annual_leave_absences_df = pd.DataFrame(annual_leave_dates, columns=['Date'])
         annual_leave_absences_df['AbsenceDays'] = 1
 
-        # Aggregate 'Annual Leave' days based on the bin_size for cumulative calculation
+        # Aggregate "Annual Leave" days based on the bin_size for cumulative calculation
         aggregated_annual_leave_df = self.aggregate_absences(annual_leave_absences_df, bin_size)
-
-        # Calculate cumulative 'AbsenceDays' for 'Annual Leave' only
         aggregated_annual_leave_df['CumulativeAbsenceDays'] = aggregated_annual_leave_df['AbsenceDays'].cumsum()
 
-        # Total entitlement and used days for 'Annual Leave'
-        total_entitlement = filtered_df['Sum of Entitlement for 2023'].sum()
+        # Total entitlement for "Annual Leave" based on the entire dataset
+        total_entitlement = filtered_annual_leave_df['Sum of Entitlement for 2023'].sum()
 
-        # Calculate cumulative percentage based on cumulative 'Annual Leave' days taken
+        # Calculate cumulative percentage based on "Annual Leave" days taken
         aggregated_annual_leave_df['CumulativePercentage'] = (aggregated_annual_leave_df['CumulativeAbsenceDays'] / total_entitlement) * 100
 
-        # Combine the aggregated data for all absences with the cumulative data for 'Annual Leave'
+        # Combine aggregated data for all absences with cumulative data for "Annual Leave"
         aggregated_df = aggregated_all_df.merge(aggregated_annual_leave_df[['Date', 'CumulativePercentage']], on='Date', how='left').fillna(method='ffill')
 
         return aggregated_df
 
     def aggregate_absences(self, absences_df, bin_size):
         """Aggregate absence days based on the bin_size."""
+        absences_df['Date'] = pd.to_datetime(absences_df['Date'])
         if bin_size == 'day':
             aggregated_df = absences_df.groupby(absences_df['Date'].dt.date)['AbsenceDays'].sum().reset_index(name='AbsenceDays')
         elif bin_size == 'week':
@@ -856,9 +861,8 @@ class ApplicationWindow(QMainWindow):
 
 
     def createHistogram(self):
-        filtered_df = self.filterData()
         bin_size = self.determine_bin_size()
-        aggregated_data = self.aggregate_data(filtered_df, bin_size)
+        aggregated_data = self.aggregate_data(bin_size)
 
         # Clear the previous figure
         self.figure.clear()
@@ -947,33 +951,47 @@ class ApplicationWindow(QMainWindow):
         # Draw the canvas with the histogram
         self.canvas.draw()
     
-    def filterData(self):
-        # Start with the original DataFrame
-        global df  # Ensure you're using the global dataframe or replace with your dataframe variable
+    def filterData(self, only_annual_leave=False):
+        global df
         filtered_df = df.copy()
 
-        # Check if a period has been selected
+        # Apply period filter
         if self.selections['period']:
             start_date, end_date = self.selections['period']
-            # Apply period filter only if it's not None
             filtered_df = filtered_df[
-                (filtered_df['From'] >= start_date) & (filtered_df['To'] <= end_date) |
-                (filtered_df['From'] <= end_date) & (filtered_df['To'] >= start_date)
+                ((filtered_df['From'] >= start_date) & (filtered_df['To'] <= end_date)) |
+                ((filtered_df['From'] <= end_date) & (filtered_df['To'] >= start_date))
             ]
 
-        # Apply filters for other categories (department, project, employee, leave)
-        for category, selection in self.selections.items():
-            if selection and category in ['department', 'project', 'employee', 'leave']:
-                column_map = {
-                    'department': 'Departament',
-                    'project': 'Project Name',
-                    'employee': 'Employee Name',
-                    'leave': 'Absence Type'
-                }
-                filtered_column = column_map[category]
-                filtered_df = filtered_df[filtered_df[filtered_column].isin(selection)]
+        if only_annual_leave:
+            # Filter for "Annual leave" and apply other selections except for 'leave'
+            filtered_df = filtered_df[filtered_df['Absence Type'] == 'Annual leave']
+            for category, selection in self.selections.items():
+                if selection and category not in ['leave']:  # Skip 'leave' type filtering
+                    column_map = {
+                        'department': 'Departament',
+                        'project': 'Project Name',
+                        'employee': 'Employee Name',
+                    }
+                    if category in column_map:
+                        filtered_column = column_map[category]
+                        filtered_df = filtered_df[filtered_df[filtered_column].isin(selection)]
+        else:
+            # Apply filters for all categories
+            for category, selection in self.selections.items():
+                if selection:
+                    column_map = {
+                        'department': 'Departament',
+                        'project': 'Project Name',
+                        'employee': 'Employee Name',
+                        'leave': 'Absence Type',
+                    }
+                    if category in column_map:
+                        filtered_column = column_map[category]
+                        filtered_df = filtered_df[filtered_df[filtered_column].isin(selection)]
 
         return filtered_df
+
 
 
 
