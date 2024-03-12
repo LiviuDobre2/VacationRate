@@ -280,7 +280,7 @@ class MonthlyTableWindow(QDialog):
     def get_monthly_data(self, year, month):
         filtered_data= self.getSelection()
         # Filter the DataFrame for the specified year and month
-        monthly_data = df[(df['From'].dt.year == year) & (df['From'].dt.month == month)]
+        monthly_data = df[(df['From'].dt.year == year) & ((df['From'].dt.month == month) | (df['To'].dt.month==month))]
         if filtered_data['employee'] is not None:
             monthly_data=monthly_data[monthly_data['Employee Name'].isin(filtered_data['employee'])]
         else: 
@@ -296,9 +296,16 @@ class MonthlyTableWindow(QDialog):
             # Iterate over each row in the monthly data
             for index, row in monthly_data.iterrows():
                 # Extract relevant information from the row
+                
                 employee_name = row['Employee Name']
                 from_date = row['From'].day  # Extract day from 'From' column
-                absence_days = row['Att./abs. days']  # Extract absence day from specified collumn
+                if row["From"].month<self.current_month:
+                    row['From']=pd.Timestamp(year=self.current_year,month=self.current_month,day=1)
+                    from_date=row['From'].day
+                
+                absence_days=row['To'].day-from_date+1
+                if row["To"].month>self.current_month:
+                    absence_days=calendar.monthrange(self.current_year, self.current_month)[1]-from_date+1
                 absence_type = row['Absence Type']  # Extract absence type from specified collumn
                 absence_list.append(absence_days)
                 absence_type_list.append(absence_type)
@@ -355,7 +362,6 @@ class MonthlyTableWindow(QDialog):
         self.tableWidget.setHorizontalHeaderItem(0, QTableWidgetItem("Employee"))
         for row_index, employee_name in enumerate(ordered_names, start=1):
             self.tableWidget.setItem(row_index, 0, QTableWidgetItem(employee_name.strip()))
-
         # Update the table with the retrieved data
         for day, inner_dict in month_data.items():
             for employee_name, (absence_days, absence_type) in inner_dict.items():
