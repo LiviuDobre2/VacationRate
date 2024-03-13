@@ -21,10 +21,8 @@ from PyQt5.QtGui import QColor
 
 #Ensure that your script's directory path handling is robust for different environments
 script_directory = os.path.dirname(os.path.abspath(__file__))
-excel_file_name = '02. VacationRateApp_Template_Export.xlsx'
+excel_file_name = 'VacationRate.xlsx'
 excel_file_path = os.path.join(script_directory, excel_file_name)
-excel_old='old.xlsx'
-excel_file_path = os.path.join(script_directory, excel_old)
 # Load the dataset and extract unique values for filtering options
 
 excel_file_path_new=os.path.join(script_directory, excel_file_name)
