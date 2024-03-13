@@ -21,22 +21,51 @@ from PyQt5.QtGui import QColor
 
 #Ensure that your script's directory path handling is robust for different environments
 script_directory = os.path.dirname(os.path.abspath(__file__))
-excel_file_name = '02. VacationRateApp_Template_Export.xlsx'
+excel_file_name = 'VacationRate.xlsx'
 excel_file_path = os.path.join(script_directory, excel_file_name)
-
 # Load the dataset and extract unique values for filtering options
-df = pd.read_excel(excel_file_path)
-# Ensuring 'From' and 'To' columns are in datetime format right after loading
-df['From'] = pd.to_datetime(df['From'])
-df['To'] = pd.to_datetime(df['To'])
+
+excel_file_path_new=os.path.join(script_directory, excel_file_name)
+# Load sheets into DataFrames
+df_absences = pd.read_excel(excel_file_path_new, sheet_name='Absences')
+df_projects = pd.read_excel(excel_file_path_new, sheet_name='Projects')
+merged_df = pd.merge(df_absences, df_projects.drop(columns=['Engineer Name']), on='Employee ID', how='inner')
+
+
+# Filter merged DataFrame based on condition
+filtered_df = merged_df[(merged_df['From'] >= merged_df['Mission start date']) & (merged_df['From'] <= merged_df['Mission end date'])]
+
+# Add 'Project Name' column to the filtered DataFrame
+filtered_df['Project Name'] = filtered_df['Project Name']
+# Find employees present in Absences but not in Projects
+employees_absences_only = df_absences[~df_absences['Employee ID'].isin(df_projects['Employee ID'])]
+
+# Create a DataFrame for these employees with 'No contract' as End Customer and Project Name
+employees_absences_only['End Customer'] = 'No contract'
+employees_absences_only['Project Name'] = 'No contract'
+# Save modified DataFrame back to the 'Absences' sheet
+# Find employees who took days off without a project assigned
+
+employees_wrong_dates = pd.merge(df_absences, df_projects, on='Employee ID', how='inner')
+employees_wrong_dates = employees_wrong_dates[~((employees_wrong_dates['From'] >= employees_wrong_dates['Mission start date']) & (employees_wrong_dates['From'] <= employees_wrong_dates['Mission end date']))]
+
+
+# Add 'No project assigned' as Project Name for these employees
+employees_wrong_dates['End Customer'] = 'Intercontract'
+employees_wrong_dates['Project Name'] = 'Intercontract'
+
+# Concatenate filtered DataFrame, DataFrame for employees with 'No contract', and DataFrame for employees with 'No project assigned'
+final_df = pd.concat([filtered_df, employees_absences_only, employees_wrong_dates], ignore_index=True)
+final_df.drop(columns=['Engineer Name'], inplace=True)
+final_df.to_excel('vacationRate_modified.xlsx', index=False, sheet_name='Absences')
+
+excel_final_name ='vacationRate_modified.xlsx'
+excel_final_path = os.path.join(script_directory, excel_final_name)
+df = pd.read_excel(excel_final_path)
 unique_departments = df["Departament"].unique().tolist()
 unique_project = df["Project Name"].unique().tolist()
 unique_employee = df["Employee Name"].unique().tolist()
 unique_leave = df["Absence Type"].unique().tolist()
-
-print(df)
-
-
 # Define a modern-looking stylesheet for the application
 stylesheet = """
     QMainWindow {
@@ -305,10 +334,10 @@ class MonthlyTableWindow(QDialog):
                 if row["From"].month<self.current_month:
                     row['From']=pd.Timestamp(year=self.current_year,month=self.current_month,day=1)
                     from_date=row['From'].day
-                
-                absence_days=row['To'].day-from_date+1
+                absence_days=row['To'].day-row['From'].day+1
+
                 if row["To"].month>self.current_month:
-                    absence_days=calendar.monthrange(self.current_year, self.current_month)[1]-from_date+1
+                    absence_days=calendar.monthrange(self.current_year,self.current_month)[1]-from_date+1
                 absence_type = row['Absence Type']  # Extract absence type from specified collumn
                 absence_list.append(absence_days)
                 absence_type_list.append(absence_type)
@@ -773,7 +802,7 @@ class ApplicationWindow(QMainWindow):
         filtered_df['From'] = pd.to_datetime(filtered_df['From'])
         filtered_df['To'] = pd.to_datetime(filtered_df['To'])
 
-        # Generate a sequence of dates for each absence entry
+        #Generate a sequence of dates for each row regardless of absence type, marking each as an absence day
         date_sequences = [pd.date_range(row['From'], row['To']).tolist() for index, row in filtered_df.iterrows()]
         all_dates = [date for sublist in date_sequences for date in sublist]
         all_absences_df = pd.DataFrame(all_dates, columns=['Date'])
@@ -793,8 +822,8 @@ class ApplicationWindow(QMainWindow):
         aggregated_annual_leave_df = self.aggregate_absences(annual_leave_absences_df, bin_size)
         aggregated_annual_leave_df['CumulativeAbsenceDays'] = aggregated_annual_leave_df['AbsenceDays'].cumsum()
 
-        # Total entitlement for "Annual Leave" based on the entire dataset
-        total_entitlement = filtered_annual_leave_df['Sum of Entitlement for 2023'].sum()
+        # Total entitlement and used days for 'Annual Leave'
+        total_entitlement = filtered_df['Sum of Entitlement'].sum()
 
         # Calculate cumulative percentage based on "Annual Leave" days taken
         aggregated_annual_leave_df['CumulativePercentage'] = (aggregated_annual_leave_df['CumulativeAbsenceDays'] / total_entitlement) * 100
