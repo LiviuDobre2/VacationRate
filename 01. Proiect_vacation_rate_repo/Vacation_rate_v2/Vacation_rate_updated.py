@@ -57,11 +57,14 @@ employees_wrong_dates['Project Name'] = 'Intercontract'
 # Concatenate filtered DataFrame, DataFrame for employees with 'No contract', and DataFrame for employees with 'No project assigned'
 final_df = pd.concat([filtered_df, employees_absences_only, employees_wrong_dates], ignore_index=True)
 final_df.drop(columns=['Engineer Name'], inplace=True)
-final_df.to_excel('vacationRate_modified.xlsx', index=False, sheet_name='Absences')
-
 excel_final_name ='vacationRate_modified.xlsx'
 excel_final_path = os.path.join(script_directory, excel_final_name)
+final_df.to_excel(excel_final_path, index=False, sheet_name='Absences')
+
+
 df = pd.read_excel(excel_final_path)
+df['From'] = pd.to_datetime(df['From'])
+df['To'] = pd.to_datetime(df['To'])
 unique_departments = df["Departament"].unique().tolist()
 unique_project = df["Project Name"].unique().tolist()
 unique_employee = df["Employee Name"].unique().tolist()
@@ -823,7 +826,10 @@ class ApplicationWindow(QMainWindow):
         aggregated_annual_leave_df['CumulativeAbsenceDays'] = aggregated_annual_leave_df['AbsenceDays'].cumsum()
 
         # Total entitlement and used days for 'Annual Leave'
-        total_entitlement = filtered_df['Sum of Entitlement'].sum()
+        unique_entitlements = filtered_df.drop_duplicates(subset=['Employee Name'])
+
+        # Now, sum the 'Sum of Entitlement' column from this filtered DataFrame.
+        total_entitlement = unique_entitlements['Sum of Entitlement'].sum()
 
         # Calculate cumulative percentage based on "Annual Leave" days taken
         aggregated_annual_leave_df['CumulativePercentage'] = (aggregated_annual_leave_df['CumulativeAbsenceDays'] / total_entitlement) * 100
@@ -904,7 +910,29 @@ class ApplicationWindow(QMainWindow):
         ax = self.figure.add_subplot(111)
         ax2 = ax.twinx()  # Create a secondary y-axis for cumulative percentages
 
+
         if not aggregated_data.empty:
+
+            if self.selections['period']:
+                start_date, end_date = self.selections['period']
+                # Create a complete date range for the month
+                complete_date_range = pd.date_range(start=start_date, end=end_date).to_frame(index=False, name='Date')
+
+                # Ensure aggregated_data 'Date' is datetime for merging
+                aggregated_data['Date'] = pd.to_datetime(aggregated_data['Date'])
+
+                # Merge to ensure all days in the month are included
+                aggregated_data = pd.merge(complete_date_range, aggregated_data, on='Date', how='left')
+
+                # Fill NaN values with 0 only for specific columns like 'AbsenceDays'
+                aggregated_data['AbsenceDays'] = aggregated_data['AbsenceDays'].fillna(0)
+
+                # Now, apply fill forward for 'CumulativePercentage' to ensure it carries over the last valid value
+                aggregated_data['CumulativePercentage'] = aggregated_data['CumulativePercentage'].fillna(method='ffill')
+
+                # Ensure the 'Date' column is back to datetime.date format if necessary
+                aggregated_data['Date'] = aggregated_data['Date'].dt.date
+
             # Dynamically adjust the bar width based on bin size
             bar_width = {'day': 0.7, 'week': 5, 'month': 20}.get(bin_size, 0.7)
             
