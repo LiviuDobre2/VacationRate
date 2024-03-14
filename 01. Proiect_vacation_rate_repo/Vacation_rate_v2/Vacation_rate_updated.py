@@ -766,6 +766,8 @@ class ApplicationWindow(QMainWindow):
 
 
     def showSelectionDialog(self, options, title):
+        # Convert options to strings and filter out NaN values
+        options = [str(option) for option in options if pd.notnull(option)]
         if self.currentDialog is not None:
             self.currentDialog.close()
         self.currentDialog = SelectionDialog(options, title, self)
@@ -796,7 +798,7 @@ class ApplicationWindow(QMainWindow):
 
     def aggregate_data(self, bin_size):
         # Use filterData with only_annual_leave=False for general absence aggregation
-        filtered_df = self.filterData(only_annual_leave=False)
+        filtered_df = self.filterData(without_period=False)
 
         if filtered_df.empty:
             return pd.DataFrame()
@@ -815,7 +817,7 @@ class ApplicationWindow(QMainWindow):
         aggregated_all_df = self.aggregate_absences(all_absences_df, bin_size)
 
         # Use filterData with only_annual_leave=True for "Annual leave" specific aggregation
-        filtered_annual_leave_df = self.filterData(only_annual_leave=True)
+        filtered_annual_leave_df = self.filterData(without_period=True)
         annual_leave_sequences = [pd.date_range(row['From'], row['To']).tolist() for index, row in filtered_annual_leave_df.iterrows()]
         annual_leave_dates = [date for sublist in annual_leave_sequences for date in sublist]
         annual_leave_absences_df = pd.DataFrame(annual_leave_dates, columns=['Date'])
@@ -853,52 +855,46 @@ class ApplicationWindow(QMainWindow):
         return aggregated_df
 
 
-
     def createDoughnutChart(self):
         filtered_df = self.filterData()
 
         # Aggregate the leave types
         leave_counts = filtered_df.groupby('Absence Type')['Att./abs. days'].sum()
+        total = leave_counts.sum()
 
-        # Labels for the pie chart
-        labels = leave_counts.index.tolist()
+        # Determine slices under 5%
+        main_categories = leave_counts[leave_counts / total >= 0.05]
+        others = leave_counts[leave_counts / total < 0.05].sum()
 
-        # Values for each segment
-        x = leave_counts.values.tolist()
+        # Add "Others" to main categories if necessary
+        if others > 0:
+            main_categories["Others"] = others
 
-        # Create a new Figure for the pie chart
-        pie_figure = Figure(figsize=(6, 6))
-        pie_canvas = FigureCanvas(pie_figure)
-        ax = pie_figure.add_subplot(111)
+        # Create the main pie chart
+        fig, ax = plt.subplots(figsize=(10, 7))  # Increase figure size for the primary chart
+        wedges, texts, autotexts = ax.pie(main_categories.values, labels=main_categories.index, autopct='%1.1f%%', startangle=90)
 
-        # Create the pie chart with specified design
-        patches, texts, pcts = ax.pie(
-            x, labels=labels, autopct='%.1f%%',
-            wedgeprops={'linewidth': 3.0, 'edgecolor': 'white'},
-            textprops={'size': 'x-large', 'weight': 'bold', 'color': 'black'},
-            startangle=90)
+        # Add a legend outside the pie chart
+        ax.legend(wedges, main_categories.index, title="Leave Types", loc="upper right", bbox_to_anchor=(1, 1), fontsize='large', title_fontsize='large')
 
-        # Set the title of the pie chart
-        ax.set_title('Leave Type Distribution', fontsize=18, color='black')
+        ax.set_title('Leave Type Distribution', fontsize=18, color='black', fontweight='bold')
+        plt.setp(texts, size='x-large', color='black', fontweight='bold')
+        plt.setp(autotexts, size='x-large', color='white', weight='bold')
 
-        # For each wedge, set the corresponding text label color to black (or you can match it to the wedge's face color)
-        for i, patch in enumerate(patches):
-            texts[i].set_color('black')
+        # Handling "Others" slice details
+        if others > 0:
+            small_categories = leave_counts[leave_counts / total < 0.05]
+            # Create a detailed text annotation for "Others"
+            detailed_text = "Details for 'Others':\n" + "\n".join([f"{k}: {v/total*100:.1f}%" for k, v in small_categories.items()])
+            fig.text(0.75, 0.2, detailed_text, ha='left', va='center', fontsize=10, fontweight='bold', bbox=dict(facecolor='white', alpha=0.5))
 
-        # Set percentage text color to white and texts to bold
-        plt.setp(pcts, color='white', weight='bold')
-        plt.setp(texts, fontweight=600)
-
-        # Ensure the layout is tight so everything fits without overlap
-        pie_figure.tight_layout()
+        fig.tight_layout()
 
         # Clear the existing layout in the doughnut chart tab and add the new canvas
-        for i in reversed(range(self.doughnutChartLayout.count())):
-            widget_to_remove = self.doughnutChartLayout.itemAt(i).widget()
-            self.doughnutChartLayout.removeWidget(widget_to_remove)
-            widget_to_remove.setParent(None)
+        canvas = FigureCanvas(fig)
+        self.doughnutChartLayout.addWidget(canvas)
 
-        self.doughnutChartLayout.addWidget(pie_canvas)
+
 
 
     def createHistogram(self):
@@ -1014,19 +1010,11 @@ class ApplicationWindow(QMainWindow):
         # Draw the canvas with the histogram
         self.canvas.draw()
     
-    def filterData(self, only_annual_leave=False):
+    def filterData(self, without_period=False):
         global df
         filtered_df = df.copy()
 
-        # Apply period filter
-        if self.selections['period']:
-            start_date, end_date = self.selections['period']
-            filtered_df = filtered_df[
-                ((filtered_df['From'] >= start_date) & (filtered_df['To'] <= end_date)) |
-                ((filtered_df['From'] <= end_date) & (filtered_df['To'] >= start_date))
-            ]
-
-        if only_annual_leave:
+        if without_period:
             # Filter for "Annual leave" and apply other selections except for 'leave'
             filtered_df = filtered_df[filtered_df['Absence Type'] == 'Annual leave']
             for category, selection in self.selections.items():
@@ -1040,6 +1028,14 @@ class ApplicationWindow(QMainWindow):
                         filtered_column = column_map[category]
                         filtered_df = filtered_df[filtered_df[filtered_column].isin(selection)]
         else:
+
+            # Apply period filter
+            if self.selections['period']:
+                start_date, end_date = self.selections['period']
+                filtered_df = filtered_df[
+                    ((filtered_df['From'] >= start_date) & (filtered_df['To'] <= end_date)) |
+                    ((filtered_df['From'] <= end_date) & (filtered_df['To'] >= start_date))
+                ]
             # Apply filters for all categories
             for category, selection in self.selections.items():
                 if selection:
