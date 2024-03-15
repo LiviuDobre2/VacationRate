@@ -369,7 +369,7 @@ class MonthlyTableWindow(QDialog):
         month_name = QDate.longMonthName(self.current_month)
         self.tableWidget.setHorizontalHeaderItem(0, QTableWidgetItem("Employee"))
         self.tableWidget.setVerticalHeaderItem(0, QTableWidgetItem(month_name))
-        for i in range(1,11):
+        for i in range(1,200):
          self.tableWidget.setVerticalHeaderItem(i, QTableWidgetItem(str(i)))   
         
         for i in range(1, num_days + 1):
@@ -410,10 +410,18 @@ class MonthlyTableWindow(QDialog):
                     # Set the absence days in the table cell
                     for i in range(int(absence_days)):
                         if column_index + i <= num_days:  # Ensure it doesn't exceed the maximum day
-                            color, _ = self.get_absence_type_color(absence_type)
-                            cell_item = QTableWidgetItem(self.get_absence_letter(absence_type))
-                            cell_item.setBackground(color)
-                            self.tableWidget.setItem(row_index, column_index+i, cell_item)
+                            actual_day=datetime.date(self.current_year,self.current_month,column_index+i)
+                            pandas_day=pd.to_datetime(actual_day)
+                            if pandas_day.dayofweek<5:
+                                color, _ = self.get_absence_type_color(absence_type)
+                                cell_item = QTableWidgetItem(self.get_absence_letter(absence_type))
+                                cell_item.setBackground(color)
+                                self.tableWidget.setItem(row_index, column_index+i, cell_item)
+                            else:
+                                cell_item = QTableWidgetItem('W')
+                                light_grey = QColor(211,211,211)  # Adjust the RGB values for the desired shade of gray
+                                cell_item.setBackground(light_grey)
+                                self.tableWidget.setItem(row_index, column_index+i, cell_item)
         ro_holidays = self.get_national_holidays(self.current_year,self.current_month)
 
         light_grey = QColor(211,211,211)  # Adjust the RGB values for the desired shade of gray
@@ -502,7 +510,7 @@ class MonthlyTableWindow(QDialog):
         tableWidget = QTableWidget()
         num_days = calendar.monthrange(self.current_year, self.current_month)[1]
         tableWidget.setColumnCount(num_days + 1)
-        tableWidget.setRowCount(11)
+        tableWidget.setRowCount(200)
         headers = [str(day) for day in range(1, 31)]  # Assuming maximum 31 days in a month
 
         tableWidget.setHorizontalHeaderLabels(headers)
@@ -515,7 +523,7 @@ class MonthlyTableWindow(QDialog):
         month_name = QDate.longMonthName(self.current_month)
         tableWidget.setHorizontalHeaderItem(0, QTableWidgetItem("Employee"))
         tableWidget.setVerticalHeaderItem(0, QTableWidgetItem(month_name))
-        for i in range(1,11):
+        for i in range(1,200):
             tableWidget.setVerticalHeaderItem(i, QTableWidgetItem(str(i)))   
         
         for i in range(1, num_days + 1):
@@ -553,11 +561,20 @@ class MonthlyTableWindow(QDialog):
                     column_index = day
                     # Set the absence days in the table cell
                     for i in range(int(absence_days)):
+
                         if column_index + i <= num_days:  # Ensure it doesn't exceed the maximum day
-                            color, _ = self.get_absence_type_color(absence_type)
-                            cell_item = QTableWidgetItem(self.get_absence_letter(absence_type))
-                            cell_item.setBackground(color)
-                            tableWidget.setItem(row_index, column_index+i, cell_item)
+                            actual_day=datetime.date(self.current_year,self.current_month,column_index+i)
+                            pandas_day=pd.to_datetime(actual_day)
+                            if pandas_day.dayofweek<5:
+                                color, _ = self.get_absence_type_color(absence_type)
+                                cell_item = QTableWidgetItem(self.get_absence_letter(absence_type))
+                                cell_item.setBackground(color)
+                                tableWidget.setItem(row_index, column_index+i, cell_item)
+                            else:
+                                cell_item = QTableWidgetItem('W')
+                                light_grey = QColor(211,211,211)  # Adjust the RGB values for the desired shade of gray
+                                cell_item.setBackground(light_grey)
+                                tableWidget.setItem(row_index, column_index+i, cell_item)
         ro_holidays = self.get_national_holidays(self.current_year,self.current_month)
 
         light_grey = QColor(211,211,211)  # Adjust the RGB values for the desired shade of gray
@@ -826,13 +843,13 @@ class ApplicationWindow(QMainWindow):
         filtered_df_full= filtered_df[filtered_df['Att./abs. days']!=0.5]
         date_sequences=[]
         for index, row in filtered_df_full.iterrows():
-            
-            date_sequence = pd.date_range(row['From'], row['To']) 
-            date_no_weekends=date_sequence[date_sequence.dayofweek<5]
-            date_sequences.append(date_no_weekends)
+            date_sequence = pd.date_range(row['From'], row['To'])
+            date_sequence_no_weekends = date_sequence[date_sequence.dayofweek < 5]  # Filter out weekends
+            date_sequences.append(date_sequence_no_weekends)
         all_dates = [date for sublist in date_sequences for date in sublist]
         all_absences_df_full = pd.DataFrame(all_dates, columns=['Date'])
         all_absences_df_full['AbsenceDays'] = 1  # Mark each day as an absence day
+        all_absences_df_full.to_excel('plm15.xlsx', index=False, sheet_name='Absences')
         all_absences_df=pd.concat([all_absences_df_full, all_absences_df_half], ignore_index=True)
         # Aggregate all absence days based on the bin_size
         aggregated_all_df = self.aggregate_absences(all_absences_df, bin_size)
@@ -1015,21 +1032,7 @@ class ApplicationWindow(QMainWindow):
             start_date, end_date = self.selections['period']
             # Apply period filter only if it's not None
             filtered_df = filtered_df[
-                (filtered_df['From'] >= start_date) & (filtered_df['To'] <= end_date) |
-                (filtered_df['From'] <= end_date) & (filtered_df['To'] >= start_date)
-            ]
-
-        # Apply filters for other categories (department, project, employee, leave)
-        for category, selection in self.selections.items():
-            if selection and category in ['department', 'project', 'employee', 'leave']:
-                column_map = {
-                    'department': 'Departament',
-                    'project': 'Project Name',
-                    'employee': 'Employee Name',
-                    'leave': 'Absence Type'
-                }
-                filtered_column = column_map[category]
-                filtered_df = filtered_df[filtered_df[filtered_column].isin(selection)]
+                (filtered_df['From'] >= start_date) & (filtered_df['To'] <= end_date) ]
         if self.selections['project'] is None:
             filtered_df=filtered_df.drop_duplicates(subset=['Employee Name', 'From'])
            
