@@ -315,12 +315,15 @@ class MonthlyTableWindow(QDialog):
         monthly_data = df[(df['From'].dt.year == year) & ((df['From'].dt.month == month) | (df['To'].dt.month==month))]
         if filtered_data['employee'] is not None:
             monthly_data=monthly_data[monthly_data['Employee Name'].isin(filtered_data['employee'])]
+            monthly_data=monthly_data.drop_duplicates(subset=['Employee Name', 'From'])
         else: 
             if filtered_data['project'] is not None:
                 monthly_data=monthly_data[monthly_data['Project Name'].isin(filtered_data['project'])]
+                
             else:
                 if filtered_data['department'] is not None:
                     monthly_data = monthly_data[monthly_data['Departament'].isin(filtered_data['department'])]
+                    monthly_data=monthly_data.drop_duplicates(subset=['Employee Name', 'From'])
         if not monthly_data.empty: 
             month_data = {}
             absence_list = []
@@ -584,7 +587,7 @@ class ApplicationWindow(QMainWindow):
             'project': None,
             'employee': None,
             'leave': None,
-            'period': None
+            'period': (datetime.datetime(2024,1,1),datetime.datetime(2024,12,31))
         }
         self.title = 'Vacation Rate App'
         self.currentDialog = None  
@@ -666,7 +669,10 @@ class ApplicationWindow(QMainWindow):
         centralWidget = QWidget()
         centralWidget.setLayout(mainLayout)
         self.setCentralWidget(centralWidget)
-        self.createHistogram()
+        filtered_df = self.filterData()
+        bin_size = self.determine_bin_size()
+        aggregated_data = self.aggregate_data(filtered_df, bin_size)
+        self.createHistogram(filtered_df,bin_size,aggregated_data)
         self.createDoughnutChart()
         self.show()
 
@@ -705,7 +711,11 @@ class ApplicationWindow(QMainWindow):
         self.selections['period'] = (start_date, end_date)
         print(f"Custom period received in main window: {start_date} to {end_date}")
         print("Current selections:", self.selections)
-        self.createHistogram() 
+        filtered_df = self.filterData()
+        bin_size = self.determine_bin_size()
+        aggregated_data = self.aggregate_data(filtered_df, bin_size)
+        print(filtered_df)
+        self.createHistogram(filtered_df,bin_size,aggregated_data)
         self.createDoughnutChart() 
 
 
@@ -738,7 +748,10 @@ class ApplicationWindow(QMainWindow):
                 self.selections['period'] = None
 
         # After setting the period, update the histogram
-        self.createHistogram()
+        filtered_df = self.filterData()
+        bin_size = self.determine_bin_size()
+        aggregated_data = self.aggregate_data(filtered_df, bin_size)
+        self.createHistogram(filtered_df,bin_size,aggregated_data)
         self.createDoughnutChart()
 
 
@@ -757,7 +770,10 @@ class ApplicationWindow(QMainWindow):
             self.selections[category_key] = selections
             print(f"{category_key} selected: {selections}")
         print("Current selections:", self.selections)
-        self.createHistogram()
+        filtered_df = self.filterData()
+        bin_size = self.determine_bin_size()
+        aggregated_data = self.aggregate_data(filtered_df, bin_size)
+        self.createHistogram(filtered_df,bin_size,aggregated_data)
         self.createDoughnutChart()
 
 
@@ -798,13 +814,26 @@ class ApplicationWindow(QMainWindow):
         # Convert 'From' and 'To' to datetime format
         filtered_df['From'] = pd.to_datetime(filtered_df['From'])
         filtered_df['To'] = pd.to_datetime(filtered_df['To'])
+        filtered_df_half=filtered_df[filtered_df['Att./abs. days']==0.5]
+        for index, row in filtered_df_half.iterrows():
+           print(pd.date_range(row['From'], row['To']).tolist(),'\n')
+        date_sequences_half = [pd.date_range(row['From'], row['To']).tolist() for index, row in filtered_df_half.iterrows()]
+        all_dates_half = [date for sublist in date_sequences_half for date in sublist]
 
+        all_absences_df_half = pd.DataFrame(all_dates_half, columns=['Date'])
+        all_absences_df_half['AbsenceDays'] = 0.5  # Mark each day as an absence day
         #Generate a sequence of dates for each row regardless of absence type, marking each as an absence day
-        date_sequences = [pd.date_range(row['From'], row['To']).tolist() for index, row in filtered_df.iterrows()]
+        filtered_df_full= filtered_df[filtered_df['Att./abs. days']!=0.5]
+        date_sequences=[]
+        for index, row in filtered_df_full.iterrows():
+            
+            date_sequence = pd.date_range(row['From'], row['To']) 
+            date_no_weekends=date_sequence[date_sequence.dayofweek<5]
+            date_sequences.append(date_no_weekends)
         all_dates = [date for sublist in date_sequences for date in sublist]
-        all_absences_df = pd.DataFrame(all_dates, columns=['Date'])
-        all_absences_df['AbsenceDays'] = 1  # Mark each day as an absence day
-
+        all_absences_df_full = pd.DataFrame(all_dates, columns=['Date'])
+        all_absences_df_full['AbsenceDays'] = 1  # Mark each day as an absence day
+        all_absences_df=pd.concat([all_absences_df_full, all_absences_df_half], ignore_index=True)
         # Aggregate all absence days based on the bin_size
         aggregated_all_df = self.aggregate_absences(all_absences_df, bin_size)
 
@@ -814,7 +843,6 @@ class ApplicationWindow(QMainWindow):
         annual_leave_dates = [date for sublist in annual_leave_sequences for date in sublist]
         annual_leave_absences_df = pd.DataFrame(annual_leave_dates, columns=['Date'])
         annual_leave_absences_df['AbsenceDays'] = 1
-
         # Aggregate 'Annual Leave' days based on the bin_size for cumulative calculation
         aggregated_annual_leave_df = self.aggregate_absences(annual_leave_absences_df, bin_size)
 
@@ -826,10 +854,9 @@ class ApplicationWindow(QMainWindow):
 
         # Calculate cumulative percentage based on cumulative 'Annual Leave' days taken
         aggregated_annual_leave_df['CumulativePercentage'] = (aggregated_annual_leave_df['CumulativeAbsenceDays'] / total_entitlement) * 100
-
+        
         # Combine the aggregated data for all absences with the cumulative data for 'Annual Leave'
         aggregated_df = aggregated_all_df.merge(aggregated_annual_leave_df[['Date', 'CumulativePercentage']], on='Date', how='left').fillna(method='ffill')
-
         return aggregated_df
 
     def aggregate_absences(self, absences_df, bin_size):
@@ -842,6 +869,7 @@ class ApplicationWindow(QMainWindow):
         elif bin_size == 'month':
             aggregated_df = absences_df.groupby(absences_df['Date'].dt.to_period('M'))['AbsenceDays'].sum().reset_index(name='AbsenceDays')
             aggregated_df['Date'] = aggregated_df['Date'].apply(lambda x: x.start_time.date())
+        print("aici",aggregated_df)
         return aggregated_df
 
 
@@ -893,71 +921,63 @@ class ApplicationWindow(QMainWindow):
         self.doughnutChartLayout.addWidget(pie_canvas)
 
 
-    def createHistogram(self):
-        filtered_df = self.filterData()
-        bin_size = self.determine_bin_size()
-        aggregated_data = self.aggregate_data(filtered_df, bin_size)
+    def createHistogram(self, filtered_df, bin_size, aggregated_data):
 
+        if filtered_df.empty or aggregated_data.empty:
+            print("No data available for plotting.")
+            return
+        print(bin_size)
         # Clear the previous figure
         self.figure.clear()
         ax = self.figure.add_subplot(111)
         ax2 = ax.twinx()  # Create a secondary y-axis for cumulative percentages
 
-        if not aggregated_data.empty:
-            # Dynamically adjust the bar width based on bin size
-            bar_width = {'day': 0.7, 'week': 5, 'month': 20}.get(bin_size, 0.7)
-            
-            # Plot the histogram with the specified color and add a label for the blue bars
-            bars = ax.bar(aggregated_data['Date'], aggregated_data['AbsenceDays'], width=bar_width, color=(173/255, 216/255, 230/255), alpha=0.7, label='Absence Days Taken')
+        # Dynamically adjust the bar width based on bin size
+        bar_width = {'day': 0.7, 'week': 5, 'month': 20}.get(bin_size, 0.7)
 
-            # Plotting the cumulative percentage and adding a label for the red line
-            ax2.plot(aggregated_data['Date'], aggregated_data['CumulativePercentage'], color='red', marker='o', linestyle='-', label='Cumulative Days Taken (%)')
-            ax2.set_ylabel('Cumulative Days Taken (%)', color='red')
-            ax2.tick_params(axis='y', colors='red')
-            
-            # Adjust x-axis formatting based on bin size
-            if bin_size == 'day':
-                ax.xaxis.set_major_locator(mdates.DayLocator())
-                ax.xaxis.set_major_formatter(mdates.DateFormatter('%d-%m-%Y'))
-            elif bin_size == 'week':
-                ax.xaxis.set_major_locator(mdates.WeekdayLocator())
-                ax.xaxis.set_major_formatter(mdates.DateFormatter('%U - %Y'))
-            elif bin_size == 'month':
-                ax.xaxis.set_major_locator(mdates.MonthLocator())
-                ax.xaxis.set_major_formatter(mdates.DateFormatter('%B %Y'))
-            ax.figure.autofmt_xdate()  # Auto-format date labels
+        # Plot the histogram with the specified color and add a label for the blue bars
+        bars = ax.bar(aggregated_data['Date'], aggregated_data['AbsenceDays'], width=bar_width, color=(173/255, 216/255, 230/255), alpha=0.7, label='Absence Days Taken')
 
-            # Annotate each bin with its value
-            for bar in bars:
-                height = bar.get_height()
-                ax.annotate(f'{int(height)}',
-                            xy=(bar.get_x() + bar.get_width() / 2, height),
-                            xytext=(0, 3),  # 3 points vertical offset
-                            textcoords="offset points",
-                            ha='center', va='bottom')
+        # Plotting the cumulative percentage and adding a label for the red line
+        ax2.plot(aggregated_data['Date'], aggregated_data['CumulativePercentage'], color='red', marker='o', linestyle='-', label='Cumulative Days Taken (%)')
+        ax2.set_ylabel('Cumulative Days Taken (%)', color='red')
+        ax2.tick_params(axis='y', colors='red')
 
-            # Add a grid for better readability
-            ax.grid(True, which='both', linestyle='--', linewidth=0.5, color='grey', alpha=0.5)
+        # Adjust x-axis formatting based on bin size
+        if bin_size == 'day':
+            ax.xaxis.set_major_locator(mdates.DayLocator())
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%d-%m-%Y'))
+        elif bin_size == 'week':
+            ax.xaxis.set_major_locator(mdates.WeekdayLocator())
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%U - %Y'))
+        elif bin_size == 'month':
+            ax.xaxis.set_major_locator(mdates.MonthLocator())
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%B %Y'))
+        ax.figure.autofmt_xdate()  # Auto-format date labels
 
-            # Set titles and labels
-            ax.set_title('Absence Counts')
-            ax.set_xlabel('Period')
-            ax.set_ylabel('Total Absence Days')
+        # Annotate each bin with its value
+        for bar in bars:
+            height = bar.get_height()
+            ax.annotate(f'{int(height)}',
+                        xy=(bar.get_x() + bar.get_width() / 2, height),
+                        xytext=(0, 3),  # 3 points vertical offset
+                        textcoords="offset points",
+                        ha='center', va='bottom')
 
-            # Combining legends from both axes
-            handles, labels = ax.get_legend_handles_labels()
-            handles2, labels2 = ax2.get_legend_handles_labels()
-            ax2.legend(handles + handles2, labels + labels2, loc='upper left')
+        # Add a grid for better readability
+        ax.grid(True, which='both', linestyle='--', linewidth=0.5, color='grey', alpha=0.5)
 
-        else:
-            # Display message if no data
-            ax.text(0.5, 0.5, 'No data to display for the selected filters', horizontalalignment='center', verticalalignment='center', transform=ax.transAxes)
+        # Set titles and labels
+        ax.set_title('Absence Counts')
+        ax.set_xlabel('Period')
+        ax.set_ylabel('Total Absence Days')
 
+        # Combining legends from both axes
+        handles, labels = ax.get_legend_handles_labels()
+        handles2, labels2 = ax2.get_legend_handles_labels()
+        ax2.legend(handles + handles2, labels + labels2, loc='upper left') 
         self.figure.subplots_adjust(left=0.07, right=0.95, top=0.95, bottom=0.15)
         self.canvas.draw()
-
-
-
     def displayMessage(self, message):
         # Clear the previous figure and display a message
         self.figure.clear()
@@ -1010,7 +1030,9 @@ class ApplicationWindow(QMainWindow):
                 }
                 filtered_column = column_map[category]
                 filtered_df = filtered_df[filtered_df[filtered_column].isin(selection)]
-
+        if self.selections['project'] is None:
+            filtered_df=filtered_df.drop_duplicates(subset=['Employee Name', 'From'])
+           
         return filtered_df
 
 
