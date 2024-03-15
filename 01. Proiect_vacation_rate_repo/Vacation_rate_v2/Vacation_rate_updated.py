@@ -797,49 +797,62 @@ class ApplicationWindow(QMainWindow):
     
 
     def aggregate_data(self, bin_size):
-        # Use filterData with only_annual_leave=False for general absence aggregation
         filtered_df = self.filterData(without_period=False)
 
         if filtered_df.empty:
             return pd.DataFrame()
 
-        # Convert 'From' and 'To' to datetime format for general aggregation
         filtered_df['From'] = pd.to_datetime(filtered_df['From'])
         filtered_df['To'] = pd.to_datetime(filtered_df['To'])
+        
+        if self.selections.get('project') is None:
+            filtered_df = filtered_df.drop_duplicates(subset=['Employee ID', 'From', 'To', 'Absence Type'])
 
-        #Generate a sequence of dates for each row regardless of absence type, marking each as an absence day
-        date_sequences = [pd.date_range(row['From'], row['To']).tolist() for index, row in filtered_df.iterrows()]
-        all_dates = [date for sublist in date_sequences for date in sublist]
-        all_absences_df = pd.DataFrame(all_dates, columns=['Date'])
-        all_absences_df['AbsenceDays'] = 1
+        # Initialize an empty list to store all absences
+        all_absences = []
 
-        # Aggregate all absence days based on the bin_size
+        # Loop through the filtered DataFrame
+        for _, row in filtered_df.iterrows():
+            business_days = pd.date_range(row['From'], row['To']).to_series().map(lambda x: x if x.weekday() < 5 else None).dropna()
+            
+            # Calculate the abs_days_per_date for distributing 'Att./abs. days' evenly across business days
+            abs_days_per_date = row['Att./abs. days'] / len(business_days) if len(business_days) > 0 else row['Att./abs. days']
+            
+            # Special handling for single business day with half-day absence
+            if len(business_days) == 1 and row['Att./abs. days'] == 0.5:
+                all_absences.append({'Date': business_days.iloc[0], 'AbsenceDays': 0.5})
+            else:
+                for date in business_days:
+                    all_absences.append({'Date': date, 'AbsenceDays': abs_days_per_date})
+
+        all_absences_df = pd.DataFrame(all_absences)
+
+        # Aggregate the absences based on the bin size (day, week, or month)
         aggregated_all_df = self.aggregate_absences(all_absences_df, bin_size)
 
-        # Use filterData with only_annual_leave=True for "Annual leave" specific aggregation
+   
         filtered_annual_leave_df = self.filterData(without_period=True)
-        annual_leave_sequences = [pd.date_range(row['From'], row['To']).tolist() for index, row in filtered_annual_leave_df.iterrows()]
-        annual_leave_dates = [date for sublist in annual_leave_sequences for date in sublist]
-        annual_leave_absences_df = pd.DataFrame(annual_leave_dates, columns=['Date'])
-        annual_leave_absences_df['AbsenceDays'] = 1
+        annual_leave_absences = []
+        for _, row in filtered_annual_leave_df.iterrows():
+            business_days = pd.date_range(row['From'], row['To']).to_series().map(lambda x: x if x.weekday() < 5 else None).dropna()
+            for date in business_days:
+                annual_leave_absences.append({'Date': date, 'AbsenceDays': 1})
 
-        # Aggregate "Annual Leave" days based on the bin_size for cumulative calculation
+        annual_leave_absences_df = pd.DataFrame(annual_leave_absences)
         aggregated_annual_leave_df = self.aggregate_absences(annual_leave_absences_df, bin_size)
         aggregated_annual_leave_df['CumulativeAbsenceDays'] = aggregated_annual_leave_df['AbsenceDays'].cumsum()
 
-        # Total entitlement and used days for 'Annual Leave'
         unique_entitlements = filtered_df.drop_duplicates(subset=['Employee Name'])
-
-        # Now, sum the 'Sum of Entitlement' column from this filtered DataFrame.
         total_entitlement = unique_entitlements['Sum of Entitlement'].sum()
 
-        # Calculate cumulative percentage based on "Annual Leave" days taken
         aggregated_annual_leave_df['CumulativePercentage'] = (aggregated_annual_leave_df['CumulativeAbsenceDays'] / total_entitlement) * 100
 
-        # Combine aggregated data for all absences with cumulative data for "Annual Leave"
+        # Combine the aggregated dataframes
         aggregated_df = aggregated_all_df.merge(aggregated_annual_leave_df[['Date', 'CumulativePercentage']], on='Date', how='left').fillna(method='ffill')
 
         return aggregated_df
+
+
 
     def aggregate_absences(self, absences_df, bin_size):
         """Aggregate absence days based on the bin_size."""
