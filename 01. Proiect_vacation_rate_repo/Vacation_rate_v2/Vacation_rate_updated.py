@@ -355,11 +355,33 @@ class MonthlyTableWindow(QDialog):
         else:
             # If no data is found for the specified month and year, return empty dictionaries
             return {}, [], []
+    def export_to_excel(self):
+        # Get the data from the table widget
+        data = []
+        for row in range(self.tableWidget.rowCount()):
+            row_data = []
+            for column in range(self.tableWidget.columnCount()):
+                item = self.tableWidget.item(row, column)
+                if item is not None:
+                    row_data.append(item.text())
+                else:
+                    row_data.append('')
+            data.append(row_data)
+
+        # Convert the data to a DataFrame
+        df = pd.DataFrame(data[1:], columns=data[0])  # Skip the header row
+
+        # Specify the file path to save the Excel file
+        file_path = 'table_data.xlsx'
+
+        # Export the DataFrame to an Excel file
+        df.to_excel(file_path, index=False)
+
     def updateTable(self):
         # Clear the table
         self.tableWidget.clearContents()
         num_days = calendar.monthrange(self.current_year, self.current_month)[1]
-        self.tableWidget.setColumnCount(num_days + 1)
+        self.tableWidget.setColumnCount(num_days + 2)
         light_blue = QColor(173, 216, 230)
 
         # Color the first two rows into light blue
@@ -385,6 +407,9 @@ class MonthlyTableWindow(QDialog):
             header_item = QTableWidgetItem(header_text)
             self.tableWidget.setItem(0, i, header_item)
             self.tableWidget.resizeRowsToContents()
+        self.tableWidget.setHorizontalHeaderItem(num_days+2, QTableWidgetItem('Total'))
+        self.tableWidget.resizeRowsToContents()
+        
         seen_keys = set()
         ordered_names = []
 
@@ -393,10 +418,17 @@ class MonthlyTableWindow(QDialog):
                 if key not in seen_keys:
                     ordered_names.append(key)
                     seen_keys.add(key)
-
         self.tableWidget.setHorizontalHeaderItem(0, QTableWidgetItem("Employee"))
         for row_index, employee_name in enumerate(ordered_names, start=1):
             self.tableWidget.setItem(row_index, 0, QTableWidgetItem(employee_name.strip()))
+            total_days = 0  # Initialize total days counter
+            for day, inner_dict in month_data.items():
+                absence_days = inner_dict.get(employee_name, [0])[0]  # Get absence days for the employee
+                actual_day=datetime.date(self.current_year,self.current_month,day)
+                pandas_day=pd.to_datetime(actual_day)
+                print(pandas_day)
+                total_days += absence_days  # Update total days
+                self.tableWidget.setItem(row_index, num_days + 1, QTableWidgetItem(str(total_days)))
         # Update the table with the retrieved data
         for day, inner_dict in month_data.items():
             for employee_name, (absence_days, absence_type) in inner_dict.items():
@@ -422,6 +454,7 @@ class MonthlyTableWindow(QDialog):
                                 light_grey = QColor(211,211,211)  # Adjust the RGB values for the desired shade of gray
                                 cell_item.setBackground(light_grey)
                                 self.tableWidget.setItem(row_index, column_index+i, cell_item)
+                    
         ro_holidays = self.get_national_holidays(self.current_year,self.current_month)
 
         light_grey = QColor(211,211,211)  # Adjust the RGB values for the desired shade of gray
@@ -441,7 +474,7 @@ class MonthlyTableWindow(QDialog):
             item.setBackground(light_blue)
         self.tableWidget.resizeColumnsToContents()
         self.tableWidget.repaint()
-
+        self.export_to_excel()
     def get_absence_type_color(self, absence_type):
         # Define colors for each absence type and their lighter versions
         color_map = {
