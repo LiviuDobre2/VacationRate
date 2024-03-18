@@ -18,9 +18,8 @@ import datetime
 from datetime import date
 import holidays
 from PyQt5.QtGui import QColor
-import xlsxwriter
 import openpyxl
-from openpyxl.styles import PatternFill, Font, Alignment
+from openpyxl.styles import PatternFill, Font, Alignment, Border,Side
 
 #Ensure that your script's directory path handling is robust for different environments
 script_directory = os.path.dirname(os.path.abspath(__file__))
@@ -391,8 +390,11 @@ class MonthlyTableWindow(QDialog):
                     # Convert Qt color to aRGB hex format
                     qt_color = item.background().color().name()
                     argb_hex_color = f"FF{qt_color[1:]}"  # Add alpha channel FF for full opacity
-                    fill = PatternFill(start_color=argb_hex_color, end_color=argb_hex_color, fill_type="solid")
+                    fill = PatternFill(start_color=argb_hex_color, end_color=argb_hex_color, fill_type="darkGrid")
                     cell.fill = fill
+                    if col==0 or col == self.tableWidget.columnCount() - 1:
+                        fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="darkGrid")
+                        cell.fill=fill
     
         # Set column widths based on the widths of the Qt table columns
         for col in range(self.tableWidget.columnCount()):
@@ -404,11 +406,12 @@ class MonthlyTableWindow(QDialog):
         for row in worksheet.iter_rows():
             for cell in row:
                 cell.alignment = Alignment(wrapText=True)
-    
+        thinBorder=Border(left=Side(style='thin'),right=Side(style='thin'),top=Side(style='thin'),bottom=Side(style='thin'))
+        for row in worksheet.iter_rows():
+            for cell in row:
+                cell.border=thinBorder
         # Save the workbook
         workbook.save(file_path)
-        # Close the workbook
-        workbook.close()
     def updateTable(self):
         # Clear the table
         self.tableWidget.clearContents()
