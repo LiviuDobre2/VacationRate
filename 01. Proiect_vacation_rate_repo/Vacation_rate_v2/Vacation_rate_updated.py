@@ -1,6 +1,7 @@
 import sys
 import os
 from matplotlib import pyplot as plt
+import numpy as np
 import pandas as pd
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QPushButton, QLabel,
@@ -17,6 +18,7 @@ import calendar
 import datetime
 from datetime import date
 import holidays
+from scipy.stats import norm
 from PyQt5.QtGui import QColor
 
 #Ensure that your script's directory path handling is robust for different environments
@@ -645,12 +647,16 @@ class ApplicationWindow(QMainWindow):
         self.tabWidget = QTabWidget()
         self.histogramTab = QWidget()
         self.doughnutChartTab = QWidget()
+        self.remainingLeavesTab = QWidget()
+
         self.tabWidget.addTab(self.histogramTab, "Histogram")
         self.tabWidget.addTab(self.doughnutChartTab, "Doughnut Chart")
+        self.tabWidget.addTab(self.remainingLeavesTab, "Remaining Leaves")
 
         # Setup layouts for the histogram and the doughnut chart tabs
         self.histogramLayout = QVBoxLayout(self.histogramTab)
         self.doughnutChartLayout = QVBoxLayout(self.doughnutChartTab)
+        self.remainingLeavesLayout = QVBoxLayout(self.remainingLeavesTab)
 
         # Setup the histogram tab with a matplotlib canvas
         self.figure = Figure()
@@ -671,6 +677,7 @@ class ApplicationWindow(QMainWindow):
         self.setCentralWidget(centralWidget)
         self.createHistogram()
         self.createDoughnutChart()
+        self.createRemainingLeavesChart()
         self.show()
 
 
@@ -743,6 +750,7 @@ class ApplicationWindow(QMainWindow):
         # After setting the period, update the histogram
         self.createHistogram()
         self.createDoughnutChart()
+        self.createRemainingLeavesChart()
 
 
 
@@ -762,6 +770,7 @@ class ApplicationWindow(QMainWindow):
         print("Current selections:", self.selections)
         self.createHistogram()
         self.createDoughnutChart()
+        self.createRemainingLeavesChart()
 
 
 
@@ -778,6 +787,21 @@ class ApplicationWindow(QMainWindow):
     def resizeEvent(self, event):
         QMainWindow.resizeEvent(self, event)
         # Reposition the metrics frame when the main window is resized
+
+    def calculate_remaining_leaves(self):
+        df = self.filterData(without_period=False)
+  
+        annual_leave_df = df[df['Absence Type'] == 'Annual leave'].drop_duplicates(subset=['Employee ID', 'From', 'To', 'Absence Type'])
+        leave_taken = annual_leave_df.groupby('Employee ID')['Att./abs. days'].sum()
+        leave_entitlement = 25
+        remaining_leaves = leave_entitlement - leave_taken
+        
+        # Dynamically determine the start of bins based on the data
+        min_remaining_leave = min(0, remaining_leaves.min())  # Ensuring 0 is the minimum if negative values exist
+        bins = np.arange(min_remaining_leave, 26.5)  # Adjust to ensure bins 0 to 25
+        
+        histogram_data, _ = np.histogram(remaining_leaves, bins=bins)
+        return histogram_data, bins, remaining_leaves
 
 
     def determine_bin_size(self):
@@ -804,7 +828,7 @@ class ApplicationWindow(QMainWindow):
 
         filtered_df['From'] = pd.to_datetime(filtered_df['From'])
         filtered_df['To'] = pd.to_datetime(filtered_df['To'])
-        
+
         if self.selections.get('project') is None:
             filtered_df = filtered_df.drop_duplicates(subset=['Employee ID', 'From', 'To', 'Absence Type'])
 
@@ -869,6 +893,10 @@ class ApplicationWindow(QMainWindow):
 
 
     def createDoughnutChart(self):
+        while self.doughnutChartLayout.count():
+            child = self.doughnutChartLayout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
         filtered_df = self.filterData()
 
         # Aggregate the leave types
@@ -888,7 +916,7 @@ class ApplicationWindow(QMainWindow):
         wedges, texts, autotexts = ax.pie(main_categories.values, labels=main_categories.index, autopct='%1.1f%%', startangle=90)
 
         # Add a legend outside the pie chart
-        ax.legend(wedges, main_categories.index, title="Leave Types", loc="upper right", bbox_to_anchor=(1, 1), fontsize='large', title_fontsize='large')
+        ax.legend(wedges, main_categories.index, title="Leave Types", loc="upper right", bbox_to_anchor=(1.2, 1), fontsize='large', title_fontsize='large')
 
         ax.set_title('Leave Type Distribution', fontsize=18, color='black', fontweight='bold')
         plt.setp(texts, size='x-large', color='black', fontweight='bold')
@@ -993,6 +1021,56 @@ class ApplicationWindow(QMainWindow):
 
         self.figure.subplots_adjust(left=0.07, right=0.95, top=0.95, bottom=0.15)
         self.canvas.draw()
+
+
+    def createRemainingLeavesChart(self):
+        histogram_data, bins, remaining_leaves = self.calculate_remaining_leaves()
+        
+        figure = Figure(figsize=(10, 6))
+        ax = figure.add_subplot(111)
+        
+        bin_centers = 0.5 * (bins[:-1] + bins[1:])
+        mean = np.mean(remaining_leaves)
+        std_dev = np.std(remaining_leaves, ddof=1)
+        
+        ax.bar(bin_centers, histogram_data, align='center', color='skyblue', label='Number of Employees')
+        
+        if std_dev > 0 and not np.isnan(std_dev):
+            x = np.linspace(mean - 3*std_dev, mean + 3*std_dev, 100)
+            y = norm.pdf(x, mean, std_dev)
+            
+            # Scale y by total counts to make it comparable to histogram
+            scaled_y = y * sum(histogram_data) * np.diff(bins[:2])  # np.diff(bins[:2]) gives bin width
+            
+            ax2 = ax.twinx()
+            percentage_y = scaled_y / sum(histogram_data) * 100  # Convert to percentages of total counts
+            ax2.plot(x, percentage_y, 'r-', label='Normal Distribution (%)')
+            ax2.set_ylabel('Percentage (%)')
+            ax2.legend(loc='upper right')
+        else:
+            print("Standard deviation is zero or NaN. Normal distribution curve will not be plotted.")
+        
+        ax.set_xlabel('Remaining Annual Leave Days')
+        ax.set_ylabel('Number of Employees')
+        ax.set_title('Distribution of Remaining Annual Leave Days with Normal Distribution')
+        ax.legend(loc='upper left')
+        
+        ax.set_xticks(bin_centers)
+        ax.set_xticklabels([f"{int(bin)}" for bin in bins[:-1]])
+        
+        ax.grid(True, which='both', linestyle='--', linewidth=0.5, color='grey', alpha=0.5)
+        figure.tight_layout()
+        
+        while self.remainingLeavesLayout.count():
+            child = self.remainingLeavesLayout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+        
+        canvas = FigureCanvas(figure)
+        self.remainingLeavesLayout.addWidget(canvas)
+
+
+
 
 
 
