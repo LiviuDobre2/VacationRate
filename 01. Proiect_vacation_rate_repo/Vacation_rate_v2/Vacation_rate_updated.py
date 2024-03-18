@@ -882,7 +882,6 @@ class ApplicationWindow(QMainWindow):
         all_dates = [date for sublist in date_sequences for date in sublist]
         all_absences_df_full = pd.DataFrame(all_dates, columns=['Date'])
         all_absences_df_full['AbsenceDays'] = 1  # Mark each day as an absence day
-        all_absences_df_full.to_excel('plm15.xlsx', index=False, sheet_name='Absences')
         all_absences_df=pd.concat([all_absences_df_full, all_absences_df_half], ignore_index=True)
         # Aggregate all absence days based on the bin_size
         aggregated_all_df = self.aggregate_absences(all_absences_df, bin_size)
