@@ -18,6 +18,9 @@ import datetime
 from datetime import date
 import holidays
 from PyQt5.QtGui import QColor
+import xlsxwriter
+import openpyxl
+from openpyxl.styles import PatternFill, Font
 
 #Ensure that your script's directory path handling is robust for different environments
 script_directory = os.path.dirname(os.path.abspath(__file__))
@@ -356,26 +359,41 @@ class MonthlyTableWindow(QDialog):
             # If no data is found for the specified month and year, return empty dictionaries
             return {}, [], []
     def export_to_excel(self):
-        # Get the data from the table widget
-        data = []
+        excel_final_name = 'table.xlsx'
+        file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), excel_final_name)
+        workbook = openpyxl.Workbook()
+        worksheet = workbook.active
+
+        # Write column names
+        for col in range(1, self.tableWidget.columnCount() + 1):
+            header_item = self.tableWidget.horizontalHeaderItem(col - 1)
+            if header_item is not None:
+                worksheet.cell(row=1, column=col, value=header_item.text())
+
+        # Write row names
+        for row in range(1, self.tableWidget.rowCount() + 1):
+            header_item = self.tableWidget.verticalHeaderItem(row - 1)
+            if header_item is not None:
+                cell = worksheet.cell(row=row + 1, column=1, value=header_item.text())
+                # Set font color for employee name cells to white
+                cell.font = Font(color="FFFFFF")  # White font color
+
+        # Write data along with background colors
         for row in range(self.tableWidget.rowCount()):
-            row_data = []
-            for column in range(self.tableWidget.columnCount()):
-                item = self.tableWidget.item(row, column)
+            for col in range(self.tableWidget.columnCount()):
+                item = self.tableWidget.item(row, col)
                 if item is not None:
-                    row_data.append(item.text())
-                else:
-                    row_data.append('')
-            data.append(row_data)
+                    cell = worksheet.cell(row=row + 2, column=col + 2)
+                    cell.value = item.text()
+                    background_color = item.background().color()
+                    if background_color.isValid():
+                        # Convert QColor to RGB tuple and then to RGB hex string
+                        rgb_color = background_color.getRgb()[:-1]  # Exclude alpha channel
+                        rgb_hex = '%02x%02x%02x' % rgb_color
+                        fill = PatternFill(start_color=rgb_hex, end_color=rgb_hex, fill_type="solid")
+                        cell.fill = fill
 
-        # Convert the data to a DataFrame
-        df = pd.DataFrame(data[1:], columns=data[0])  # Skip the header row
-
-        # Specify the file path to save the Excel file
-        file_path = 'table_data.xlsx'
-
-        # Export the DataFrame to an Excel file
-        df.to_excel(file_path, index=False)
+        workbook.save(file_path)
 
     def updateTable(self):
         # Clear the table
