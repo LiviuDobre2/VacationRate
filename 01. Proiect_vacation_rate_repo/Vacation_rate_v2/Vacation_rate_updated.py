@@ -20,7 +20,7 @@ import holidays
 from PyQt5.QtGui import QColor
 import xlsxwriter
 import openpyxl
-from openpyxl.styles import PatternFill, Font
+from openpyxl.styles import PatternFill, Font, Alignment
 
 #Ensure that your script's directory path handling is robust for different environments
 script_directory = os.path.dirname(os.path.abspath(__file__))
@@ -362,9 +362,11 @@ class MonthlyTableWindow(QDialog):
     def export_to_excel(self):
         excel_final_name = 'table.xlsx'
         file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), excel_final_name)
+    
+        # Create the workbook
         workbook = openpyxl.Workbook()
         worksheet = workbook.active
-
+    
         # Write column names
         for col in range(1, self.tableWidget.columnCount() + 1):
             header_item = self.tableWidget.horizontalHeaderItem(col - 1)
@@ -375,31 +377,30 @@ class MonthlyTableWindow(QDialog):
         for row in range(1, self.tableWidget.rowCount() + 1):
             header_item = self.tableWidget.verticalHeaderItem(row - 1)
             if header_item is not None:
-                cell = worksheet.cell(row=row + 1, column=1, value=header_item.text())
-                # Set font color for employee name cells to white
-
+                worksheet.cell(row=row + 1, column=1, value=header_item.text())
     
         # Write data along with background colors
         for row in range(self.tableWidget.rowCount()):
             for col in range(self.tableWidget.columnCount()):
                 item = self.tableWidget.item(row, col)
                 if item is not None:
-                    cell = worksheet.cell(row=row + 2, column=col + 1)
+                    cell = worksheet.cell(row=row + 2, column=col + 2)
                     cell.value = item.text()
-                    background_color = item.background().color()
-                    if background_color.isValid():
-                        # Convert QColor to RGB tuple and then to RGB hex string
-                        rgb_color = background_color.getRgb()[:-1]  # Exclude alpha channel
-                        rgb_hex = '%02x%02x%02x' % rgb_color
-                        fill = PatternFill(start_color=rgb_hex, end_color=rgb_hex, fill_type="solid")
-                        cell.fill = fill
-                    # Set font color for cells in the second column to white
-                    if col == 0 or col == self.tableWidget.columnCount() - 1:  # Check if it's the second column (B column)
-                        fill = PatternFill(start_color='FFFFFF', end_color='FFFFFF', fill_type="solid")  # White color
-                        cell.fill = fill
     
+        # Calculate the maximum width of the text in the second column
+        max_width = max(len(str(self.tableWidget.item(row, 1).text())) if self.tableWidget.item(row, 1) is not None else 0 for row in range(self.tableWidget.rowCount()))
+    
+        # Set the width of the second column to fit the text
+        worksheet.column_dimensions['B'].width = max_width
+    
+        # Set alignment to wrap text for all cells
+        for row in worksheet.iter_rows():
+            for cell in row:
+                cell.alignment = Alignment(wrapText=True)
+    
+        # Save the workbook
         workbook.save(file_path)
-
+        # Close the workbook
         workbook.close()
     def updateTable(self):
         # Clear the table
