@@ -359,6 +359,7 @@ class MonthlyTableWindow(QDialog):
             # If no data is found for the specified month and year, return empty dictionaries
             return {}, [], []
 
+
     def export_to_excel(self):
         excel_final_name = 'table.xlsx'
         file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), excel_final_name)
@@ -387,11 +388,17 @@ class MonthlyTableWindow(QDialog):
                     cell = worksheet.cell(row=row + 2, column=col + 2)
                     cell.value = item.text()
     
-        # Calculate the maximum width of the text in the second column
-        max_width = max(len(str(self.tableWidget.item(row, 1).text())) if self.tableWidget.item(row, 1) is not None else 0 for row in range(self.tableWidget.rowCount()))
+                    # Convert Qt color to aRGB hex format
+                    qt_color = item.background().color().name()
+                    argb_hex_color = f"FF{qt_color[1:]}"  # Add alpha channel FF for full opacity
+                    fill = PatternFill(start_color=argb_hex_color, end_color=argb_hex_color, fill_type="solid")
+                    cell.fill = fill
     
-        # Set the width of the second column to fit the text
-        worksheet.column_dimensions['B'].width = max_width
+        # Set column widths based on the widths of the Qt table columns
+        for col in range(self.tableWidget.columnCount()):
+            qt_column_width = self.tableWidget.columnWidth(col)
+            excel_column_letter = openpyxl.utils.get_column_letter(col + 2)  # Adjust for 1-based indexing in Excel
+            worksheet.column_dimensions[excel_column_letter].width = qt_column_width / 7  # Convert from pixels to Excel units
     
         # Set alignment to wrap text for all cells
         for row in worksheet.iter_rows():
