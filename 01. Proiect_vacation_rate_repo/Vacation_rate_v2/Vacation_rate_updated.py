@@ -64,6 +64,7 @@ final_df.to_excel('vacationRate_modified.xlsx', index=False, sheet_name='Absence
 excel_final_name ='vacationRate_modified.xlsx'
 excel_final_path = os.path.join(script_directory, excel_final_name)
 df = pd.read_excel(excel_final_path)
+unique_managers=df["Manager Name"].unique().tolist()
 unique_departments = df["Departament"].unique().tolist()
 unique_project = df["Project Name"].unique().tolist()
 unique_employee = df["Employee Name"].unique().tolist()
@@ -326,6 +327,10 @@ class MonthlyTableWindow(QDialog):
                 if filtered_data['department'] is not None:
                     monthly_data = monthly_data[monthly_data['Departament'].isin(filtered_data['department'])]
                     monthly_data=monthly_data.drop_duplicates(subset=['Employee Name', 'From'])
+                else:
+                    if filtered_data['manager'] is not None:
+                        monthly_data = monthly_data[monthly_data['Manager Name'].isin(filtered_data['manager'])]
+                        monthly_data=monthly_data.drop_duplicates(subset=['Employee Name', 'From'])
         if not monthly_data.empty: 
             month_data = {}
             absence_list = []
@@ -423,7 +428,7 @@ class MonthlyTableWindow(QDialog):
 
         # Populate the table with data for the current month and year
         month_data, absence_list, absence_type_list = self.get_monthly_data(self.current_year, self.current_month)
-        month_name = QDate.longMonthName(self.current_month)
+        month_name = QDate.longMonthName(self.current_month).capitalize()
         self.tableWidget.setHorizontalHeaderItem(0, QTableWidgetItem("Employee"))
         self.tableWidget.setVerticalHeaderItem(0, QTableWidgetItem(month_name))
         for i in range(1,200):
@@ -442,7 +447,8 @@ class MonthlyTableWindow(QDialog):
             header_item = QTableWidgetItem(header_text)
             self.tableWidget.setItem(0, i, header_item)
             self.tableWidget.resizeRowsToContents()
-        self.tableWidget.setHorizontalHeaderItem(num_days+2, QTableWidgetItem('Total'))
+        self.tableWidget.setHorizontalHeaderItem(num_days+1, QTableWidgetItem('Total'))
+        self.tableWidget.setItem(0,num_days+1,QTableWidgetItem('Total'))
         self.tableWidget.resizeRowsToContents()
         
         seen_keys = set()
@@ -456,17 +462,15 @@ class MonthlyTableWindow(QDialog):
         self.tableWidget.setHorizontalHeaderItem(0, QTableWidgetItem("Employee"))
         for row_index, employee_name in enumerate(ordered_names, start=1):
             self.tableWidget.setItem(row_index, 0, QTableWidgetItem(employee_name.strip()))
-            total_days = 0  # Initialize total days counter
             for day, inner_dict in month_data.items():
                 absence_days = inner_dict.get(employee_name, [0])[0]  # Get absence days for the employee
                 actual_day=datetime.date(self.current_year,self.current_month,day)
                 pandas_day=pd.to_datetime(actual_day)
-                print(pandas_day)
-                total_days += absence_days  # Update total days
-                self.tableWidget.setItem(row_index, num_days + 1, QTableWidgetItem(str(total_days)))
         # Update the table with the retrieved data
         for day, inner_dict in month_data.items():
+            
             for employee_name, (absence_days, absence_type) in inner_dict.items():
+              
                 employee_name = employee_name.strip()  # Trim whitespace from employee name
                 # Find the row index corresponding to the employee name
                 items = self.tableWidget.findItems(employee_name, Qt.MatchExactly)
@@ -484,12 +488,23 @@ class MonthlyTableWindow(QDialog):
                                 cell_item = QTableWidgetItem(self.get_absence_letter(absence_type))
                                 cell_item.setBackground(color)
                                 self.tableWidget.setItem(row_index, column_index+i, cell_item)
+                    
                             else:
                                 cell_item = QTableWidgetItem('W')
                                 light_grey = QColor(211,211,211)  # Adjust the RGB values for the desired shade of gray
                                 cell_item.setBackground(light_grey)
                                 self.tableWidget.setItem(row_index, column_index+i, cell_item)
-                    
+        for row_index in range(1,self.tableWidget.rowCount()):
+            total_days=0
+            for col_index in range(1,num_days+1):
+                item=self.tableWidget.item(row_index,col_index)
+                if item is not None:
+                    absence_days=item.text()
+                    for day in absence_days:
+                        if day.isalpha() and day!='W':
+                            total_days+=1
+            total_days_taken=QTableWidgetItem(str(total_days))
+            self.tableWidget.setItem(row_index,num_days+1,total_days_taken)                    
         ro_holidays = self.get_national_holidays(self.current_year,self.current_month)
 
         light_grey = QColor(211,211,211)  # Adjust the RGB values for the desired shade of gray
@@ -518,7 +533,8 @@ class MonthlyTableWindow(QDialog):
             'Annual leave': (QColor(144,238,144), QColor(255, 255, 153)),
             'Wedding leave': (QColor(0, 191, 255), QColor(153, 204, 255)),
             'Unpaid leave': (QColor(220, 20, 60), QColor(255, 179, 179)),
-            'Floating day': (QColor(65, 105, 225), QColor(173, 216, 230))
+            'Floating day': (QColor(65, 105, 225), QColor(173, 216, 230)),
+            'Bereavement leave': (QColor(169,169,169),QColor(211,211,211))
         }
         # Return the corresponding color, or default to white if absence type is not found
         return color_map.get(absence_type, (Qt.white, Qt.white))
@@ -535,6 +551,8 @@ class MonthlyTableWindow(QDialog):
             return "U"
         elif absence_type == "Floating day":
             return "F"
+        elif absence_type == "Bereavement leave":
+            return "D"
         else:
             return "X"  # Default to 'X' for unknown absence types
     def get_national_holidays(self, year, month):
@@ -588,7 +606,7 @@ class MonthlyTableWindow(QDialog):
 
         # Populate the table with data for the current month and year
         month_data, absence_list, absence_type_list = self.get_monthly_data(self.current_year, self.current_month)
-        month_name = QDate.longMonthName(self.current_month)
+        month_name = QDate.longMonthName(self.current_month).capitalize()
         tableWidget.setHorizontalHeaderItem(0, QTableWidgetItem("Employee"))
         tableWidget.setVerticalHeaderItem(0, QTableWidgetItem(month_name))
         for i in range(1,200):
@@ -672,6 +690,7 @@ class ApplicationWindow(QMainWindow):
             'project': None,
             'employee': None,
             'leave': None,
+            'manager': None,
             'period': (datetime.datetime(2024,1,1),datetime.datetime(2024,12,31))
         }
         self.title = 'Vacation Rate App'
@@ -709,6 +728,9 @@ class ApplicationWindow(QMainWindow):
         self.periodButton.clicked.connect(self.showPeriodDialog)
         self.departmentButton = QPushButton('Department')
         self.departmentButton.clicked.connect(lambda: self.showSelectionDialog(unique_departments, 'Select Department'))
+        
+        self.managerButton = QPushButton('Manager')
+        self.managerButton.clicked.connect(lambda: self.showSelectionDialog(unique_managers, 'Select Manager'))
         self.projectButton = QPushButton('Project')
         self.projectButton.clicked.connect(lambda: self.showSelectionDialog(unique_project, 'Select Project'))
         self.employeeButton = QPushButton('Employee')
@@ -718,7 +740,7 @@ class ApplicationWindow(QMainWindow):
 
         # Add buttons to the layout
         buttons = [
-            self.openMonthlyTableButton, self.periodButton, self.departmentButton,
+            self.openMonthlyTableButton,self.managerButton, self.periodButton, self.departmentButton,
             self.projectButton, self.employeeButton, self.typeOfLeaveButton
         ]
         for button in buttons:
@@ -848,7 +870,8 @@ class ApplicationWindow(QMainWindow):
             'Select Department': 'department',
             'Select Project': 'project',
             'Select Employee': 'employee',
-            'Select Type of Leave': 'leave'
+            'Select Type of Leave': 'leave',
+            'Select Manager' : 'manager'
         }
         category_key = category_key_map.get(category)
         if category_key:
