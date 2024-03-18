@@ -358,6 +358,7 @@ class MonthlyTableWindow(QDialog):
         else:
             # If no data is found for the specified month and year, return empty dictionaries
             return {}, [], []
+
     def export_to_excel(self):
         excel_final_name = 'table.xlsx'
         file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), excel_final_name)
@@ -369,21 +370,21 @@ class MonthlyTableWindow(QDialog):
             header_item = self.tableWidget.horizontalHeaderItem(col - 1)
             if header_item is not None:
                 worksheet.cell(row=1, column=col, value=header_item.text())
-
+    
         # Write row names
         for row in range(1, self.tableWidget.rowCount() + 1):
             header_item = self.tableWidget.verticalHeaderItem(row - 1)
             if header_item is not None:
                 cell = worksheet.cell(row=row + 1, column=1, value=header_item.text())
                 # Set font color for employee name cells to white
-                cell.font = Font(color="FFFFFF")  # White font color
 
+    
         # Write data along with background colors
         for row in range(self.tableWidget.rowCount()):
             for col in range(self.tableWidget.columnCount()):
                 item = self.tableWidget.item(row, col)
                 if item is not None:
-                    cell = worksheet.cell(row=row + 2, column=col + 2)
+                    cell = worksheet.cell(row=row + 2, column=col + 1)
                     cell.value = item.text()
                     background_color = item.background().color()
                     if background_color.isValid():
@@ -392,9 +393,14 @@ class MonthlyTableWindow(QDialog):
                         rgb_hex = '%02x%02x%02x' % rgb_color
                         fill = PatternFill(start_color=rgb_hex, end_color=rgb_hex, fill_type="solid")
                         cell.fill = fill
-
+                    # Set font color for cells in the second column to white
+                    if col == 0 or col == self.tableWidget.columnCount() - 1:  # Check if it's the second column (B column)
+                        fill = PatternFill(start_color='FFFFFF', end_color='FFFFFF', fill_type="solid")  # White color
+                        cell.fill = fill
+    
         workbook.save(file_path)
 
+        workbook.close()
     def updateTable(self):
         # Clear the table
         self.tableWidget.clearContents()
