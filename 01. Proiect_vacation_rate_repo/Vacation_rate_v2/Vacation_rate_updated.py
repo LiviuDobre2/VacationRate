@@ -1,6 +1,7 @@
 import sys
 import os
 from matplotlib import pyplot as plt
+import numpy as np
 import pandas as pd
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QPushButton, QLabel,
@@ -17,6 +18,7 @@ import calendar
 import datetime
 from datetime import date
 import holidays
+from scipy.stats import norm
 from PyQt5.QtGui import QColor
 
 #Ensure that your script's directory path handling is robust for different environments
@@ -57,11 +59,14 @@ employees_wrong_dates['Project Name'] = 'Intercontract'
 # Concatenate filtered DataFrame, DataFrame for employees with 'No contract', and DataFrame for employees with 'No project assigned'
 final_df = pd.concat([filtered_df, employees_absences_only, employees_wrong_dates], ignore_index=True)
 final_df.drop(columns=['Engineer Name'], inplace=True)
-final_df.to_excel('vacationRate_modified.xlsx', index=False, sheet_name='Absences')
-
 excel_final_name ='vacationRate_modified.xlsx'
 excel_final_path = os.path.join(script_directory, excel_final_name)
+final_df.to_excel(excel_final_path, index=False, sheet_name='Absences')
+
+
 df = pd.read_excel(excel_final_path)
+df['From'] = pd.to_datetime(df['From'])
+df['To'] = pd.to_datetime(df['To'])
 unique_departments = df["Departament"].unique().tolist()
 unique_project = df["Project Name"].unique().tolist()
 unique_employee = df["Employee Name"].unique().tolist()
@@ -642,12 +647,16 @@ class ApplicationWindow(QMainWindow):
         self.tabWidget = QTabWidget()
         self.histogramTab = QWidget()
         self.doughnutChartTab = QWidget()
+        self.remainingLeavesTab = QWidget()
+
         self.tabWidget.addTab(self.histogramTab, "Histogram")
         self.tabWidget.addTab(self.doughnutChartTab, "Doughnut Chart")
+        self.tabWidget.addTab(self.remainingLeavesTab, "Remaining Leaves")
 
         # Setup layouts for the histogram and the doughnut chart tabs
         self.histogramLayout = QVBoxLayout(self.histogramTab)
         self.doughnutChartLayout = QVBoxLayout(self.doughnutChartTab)
+        self.remainingLeavesLayout = QVBoxLayout(self.remainingLeavesTab)
 
         # Setup the histogram tab with a matplotlib canvas
         self.figure = Figure()
@@ -668,6 +677,7 @@ class ApplicationWindow(QMainWindow):
         self.setCentralWidget(centralWidget)
         self.createHistogram()
         self.createDoughnutChart()
+        self.createRemainingLeavesChart()
         self.show()
 
 
@@ -740,6 +750,7 @@ class ApplicationWindow(QMainWindow):
         # After setting the period, update the histogram
         self.createHistogram()
         self.createDoughnutChart()
+        self.createRemainingLeavesChart()
 
 
 
@@ -759,10 +770,13 @@ class ApplicationWindow(QMainWindow):
         print("Current selections:", self.selections)
         self.createHistogram()
         self.createDoughnutChart()
+        self.createRemainingLeavesChart()
 
 
 
     def showSelectionDialog(self, options, title):
+        # Convert options to strings and filter out NaN values
+        options = [str(option) for option in options if pd.notnull(option)]
         if self.currentDialog is not None:
             self.currentDialog.close()
         self.currentDialog = SelectionDialog(options, title, self)
@@ -773,6 +787,21 @@ class ApplicationWindow(QMainWindow):
     def resizeEvent(self, event):
         QMainWindow.resizeEvent(self, event)
         # Reposition the metrics frame when the main window is resized
+
+    def calculate_remaining_leaves(self):
+        df = self.filterData(without_period=False)
+  
+        annual_leave_df = df[df['Absence Type'] == 'Annual leave'].drop_duplicates(subset=['Employee ID', 'From', 'To', 'Absence Type'])
+        leave_taken = annual_leave_df.groupby('Employee ID')['Att./abs. days'].sum()
+        leave_entitlement = 25
+        remaining_leaves = leave_entitlement - leave_taken
+        
+        # Dynamically determine the start of bins based on the data
+        min_remaining_leave = min(0, remaining_leaves.min())  # Ensuring 0 is the minimum if negative values exist
+        bins = np.arange(min_remaining_leave, 26.5)  # Adjust to ensure bins 0 to 25
+        
+        histogram_data, _ = np.histogram(remaining_leaves, bins=bins)
+        return histogram_data, bins, remaining_leaves
 
 
     def determine_bin_size(self):
@@ -791,49 +820,67 @@ class ApplicationWindow(QMainWindow):
 
     
 
-    def aggregate_data(self, filtered_df, bin_size):
+    def aggregate_data(self, bin_size):
+        filtered_df = self.filterData(without_period=False)
+
         if filtered_df.empty:
             return pd.DataFrame()
 
-        # Convert 'From' and 'To' to datetime format
         filtered_df['From'] = pd.to_datetime(filtered_df['From'])
         filtered_df['To'] = pd.to_datetime(filtered_df['To'])
 
-        #Generate a sequence of dates for each row regardless of absence type, marking each as an absence day
-        date_sequences = [pd.date_range(row['From'], row['To']).tolist() for index, row in filtered_df.iterrows()]
-        all_dates = [date for sublist in date_sequences for date in sublist]
-        all_absences_df = pd.DataFrame(all_dates, columns=['Date'])
-        all_absences_df['AbsenceDays'] = 1  # Mark each day as an absence day
+        if self.selections.get('project') is None:
+            filtered_df = filtered_df.drop_duplicates(subset=['Employee ID', 'From', 'To', 'Absence Type'])
 
-        # Aggregate all absence days based on the bin_size
+        # Initialize an empty list to store all absences
+        all_absences = []
+
+        # Loop through the filtered DataFrame
+        for _, row in filtered_df.iterrows():
+            business_days = pd.date_range(row['From'], row['To']).to_series().map(lambda x: x if x.weekday() < 5 else None).dropna()
+            
+            # Calculate the abs_days_per_date for distributing 'Att./abs. days' evenly across business days
+            abs_days_per_date = row['Att./abs. days'] / len(business_days) if len(business_days) > 0 else row['Att./abs. days']
+            
+            # Special handling for single business day with half-day absence
+            if len(business_days) == 1 and row['Att./abs. days'] == 0.5:
+                all_absences.append({'Date': business_days.iloc[0], 'AbsenceDays': 0.5})
+            else:
+                for date in business_days:
+                    all_absences.append({'Date': date, 'AbsenceDays': abs_days_per_date})
+
+        all_absences_df = pd.DataFrame(all_absences)
+
+        # Aggregate the absences based on the bin size (day, week, or month)
         aggregated_all_df = self.aggregate_absences(all_absences_df, bin_size)
 
-        # Now, specifically filter for 'Annual Leave' to calculate the cumulative days taken for 'Annual Leave' only
-        annual_leave_df = filtered_df[filtered_df['Absence Type'] == 'Annual leave'].copy()
-        annual_leave_sequences = [pd.date_range(row['From'], row['To']).tolist() for index, row in annual_leave_df.iterrows()]
-        annual_leave_dates = [date for sublist in annual_leave_sequences for date in sublist]
-        annual_leave_absences_df = pd.DataFrame(annual_leave_dates, columns=['Date'])
-        annual_leave_absences_df['AbsenceDays'] = 1
+   
+        filtered_annual_leave_df = self.filterData(without_period=True)
+        annual_leave_absences = []
+        for _, row in filtered_annual_leave_df.iterrows():
+            business_days = pd.date_range(row['From'], row['To']).to_series().map(lambda x: x if x.weekday() < 5 else None).dropna()
+            for date in business_days:
+                annual_leave_absences.append({'Date': date, 'AbsenceDays': 1})
 
-        # Aggregate 'Annual Leave' days based on the bin_size for cumulative calculation
+        annual_leave_absences_df = pd.DataFrame(annual_leave_absences)
         aggregated_annual_leave_df = self.aggregate_absences(annual_leave_absences_df, bin_size)
-
-        # Calculate cumulative 'AbsenceDays' for 'Annual Leave' only
         aggregated_annual_leave_df['CumulativeAbsenceDays'] = aggregated_annual_leave_df['AbsenceDays'].cumsum()
 
-        # Total entitlement and used days for 'Annual Leave'
-        total_entitlement = filtered_df['Sum of Entitlement'].sum()
+        unique_entitlements = filtered_df.drop_duplicates(subset=['Employee Name'])
+        total_entitlement = unique_entitlements['Sum of Entitlement'].sum()
 
-        # Calculate cumulative percentage based on cumulative 'Annual Leave' days taken
         aggregated_annual_leave_df['CumulativePercentage'] = (aggregated_annual_leave_df['CumulativeAbsenceDays'] / total_entitlement) * 100
 
-        # Combine the aggregated data for all absences with the cumulative data for 'Annual Leave'
+        # Combine the aggregated dataframes
         aggregated_df = aggregated_all_df.merge(aggregated_annual_leave_df[['Date', 'CumulativePercentage']], on='Date', how='left').fillna(method='ffill')
 
         return aggregated_df
 
+
+
     def aggregate_absences(self, absences_df, bin_size):
         """Aggregate absence days based on the bin_size."""
+        absences_df['Date'] = pd.to_datetime(absences_df['Date'])
         if bin_size == 'day':
             aggregated_df = absences_df.groupby(absences_df['Date'].dt.date)['AbsenceDays'].sum().reset_index(name='AbsenceDays')
         elif bin_size == 'week':
@@ -845,65 +892,84 @@ class ApplicationWindow(QMainWindow):
         return aggregated_df
 
 
-
     def createDoughnutChart(self):
+        while self.doughnutChartLayout.count():
+            child = self.doughnutChartLayout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
         filtered_df = self.filterData()
 
         # Aggregate the leave types
         leave_counts = filtered_df.groupby('Absence Type')['Att./abs. days'].sum()
+        total = leave_counts.sum()
 
-        # Labels for the pie chart
-        labels = leave_counts.index.tolist()
+        # Determine slices under 5%
+        main_categories = leave_counts[leave_counts / total >= 0.05]
+        others = leave_counts[leave_counts / total < 0.05].sum()
 
-        # Values for each segment
-        x = leave_counts.values.tolist()
+        # Add "Others" to main categories if necessary
+        if others > 0:
+            main_categories["Others"] = others
 
-        # Create a new Figure for the pie chart
-        pie_figure = Figure(figsize=(6, 6))
-        pie_canvas = FigureCanvas(pie_figure)
-        ax = pie_figure.add_subplot(111)
+        # Create the main pie chart
+        fig, ax = plt.subplots(figsize=(10, 7))  # Increase figure size for the primary chart
+        wedges, texts, autotexts = ax.pie(main_categories.values, labels=main_categories.index, autopct='%1.1f%%', startangle=90)
 
-        # Create the pie chart with specified design
-        patches, texts, pcts = ax.pie(
-            x, labels=labels, autopct='%.1f%%',
-            wedgeprops={'linewidth': 3.0, 'edgecolor': 'white'},
-            textprops={'size': 'x-large', 'weight': 'bold', 'color': 'black'},
-            startangle=90)
+        # Add a legend outside the pie chart
+        ax.legend(wedges, main_categories.index, title="Leave Types", loc="upper right", bbox_to_anchor=(1.2, 1), fontsize='large', title_fontsize='large')
 
-        # Set the title of the pie chart
-        ax.set_title('Leave Type Distribution', fontsize=18, color='black')
+        ax.set_title('Leave Type Distribution', fontsize=18, color='black', fontweight='bold')
+        plt.setp(texts, size='x-large', color='black', fontweight='bold')
+        plt.setp(autotexts, size='x-large', color='white', weight='bold')
 
-        # For each wedge, set the corresponding text label color to black (or you can match it to the wedge's face color)
-        for i, patch in enumerate(patches):
-            texts[i].set_color('black')
+        # Handling "Others" slice details
+        if others > 0:
+            small_categories = leave_counts[leave_counts / total < 0.05]
+            # Create a detailed text annotation for "Others"
+            detailed_text = "Details for 'Others':\n" + "\n".join([f"{k}: {v/total*100:.1f}%" for k, v in small_categories.items()])
+            fig.text(0.75, 0.2, detailed_text, ha='left', va='center', fontsize=10, fontweight='bold', bbox=dict(facecolor='white', alpha=0.5))
 
-        # Set percentage text color to white and texts to bold
-        plt.setp(pcts, color='white', weight='bold')
-        plt.setp(texts, fontweight=600)
-
-        # Ensure the layout is tight so everything fits without overlap
-        pie_figure.tight_layout()
+        fig.tight_layout()
 
         # Clear the existing layout in the doughnut chart tab and add the new canvas
-        for i in reversed(range(self.doughnutChartLayout.count())):
-            widget_to_remove = self.doughnutChartLayout.itemAt(i).widget()
-            self.doughnutChartLayout.removeWidget(widget_to_remove)
-            widget_to_remove.setParent(None)
+        canvas = FigureCanvas(fig)
+        self.doughnutChartLayout.addWidget(canvas)
 
-        self.doughnutChartLayout.addWidget(pie_canvas)
+
 
 
     def createHistogram(self):
-        filtered_df = self.filterData()
         bin_size = self.determine_bin_size()
-        aggregated_data = self.aggregate_data(filtered_df, bin_size)
+        aggregated_data = self.aggregate_data(bin_size)
 
         # Clear the previous figure
         self.figure.clear()
         ax = self.figure.add_subplot(111)
         ax2 = ax.twinx()  # Create a secondary y-axis for cumulative percentages
 
+
         if not aggregated_data.empty:
+
+            if self.selections['period']:
+                start_date, end_date = self.selections['period']
+                # Create a complete date range for the month
+                complete_date_range = pd.date_range(start=start_date, end=end_date).to_frame(index=False, name='Date')
+
+                # Ensure aggregated_data 'Date' is datetime for merging
+                aggregated_data['Date'] = pd.to_datetime(aggregated_data['Date'])
+
+                # Merge to ensure all days in the month are included
+                aggregated_data = pd.merge(complete_date_range, aggregated_data, on='Date', how='left')
+
+                # Fill NaN values with 0 only for specific columns like 'AbsenceDays'
+                aggregated_data['AbsenceDays'] = aggregated_data['AbsenceDays'].fillna(0)
+
+                # Now, apply fill forward for 'CumulativePercentage' to ensure it carries over the last valid value
+                aggregated_data['CumulativePercentage'] = aggregated_data['CumulativePercentage'].fillna(method='ffill')
+
+                # Ensure the 'Date' column is back to datetime.date format if necessary
+                aggregated_data['Date'] = aggregated_data['Date'].dt.date
+
             # Dynamically adjust the bar width based on bin size
             bar_width = {'day': 0.7, 'week': 5, 'month': 20}.get(bin_size, 0.7)
             
@@ -957,6 +1023,56 @@ class ApplicationWindow(QMainWindow):
         self.canvas.draw()
 
 
+    def createRemainingLeavesChart(self):
+        histogram_data, bins, remaining_leaves = self.calculate_remaining_leaves()
+        
+        figure = Figure(figsize=(10, 6))
+        ax = figure.add_subplot(111)
+        
+        bin_centers = 0.5 * (bins[:-1] + bins[1:])
+        mean = np.mean(remaining_leaves)
+        std_dev = np.std(remaining_leaves, ddof=1)
+        
+        ax.bar(bin_centers, histogram_data, align='center', color='skyblue', label='Number of Employees')
+        
+        if std_dev > 0 and not np.isnan(std_dev):
+            x = np.linspace(mean - 3*std_dev, mean + 3*std_dev, 100)
+            y = norm.pdf(x, mean, std_dev)
+            
+            # Scale y by total counts to make it comparable to histogram
+            scaled_y = y * sum(histogram_data) * np.diff(bins[:2])  # np.diff(bins[:2]) gives bin width
+            
+            ax2 = ax.twinx()
+            percentage_y = scaled_y / sum(histogram_data) * 100  # Convert to percentages of total counts
+            ax2.plot(x, percentage_y, 'r-', label='Normal Distribution (%)')
+            ax2.set_ylabel('Percentage (%)')
+            ax2.legend(loc='upper right')
+        else:
+            print("Standard deviation is zero or NaN. Normal distribution curve will not be plotted.")
+        
+        ax.set_xlabel('Remaining Annual Leave Days')
+        ax.set_ylabel('Number of Employees')
+        ax.set_title('Distribution of Remaining Annual Leave Days with Normal Distribution')
+        ax.legend(loc='upper left')
+        
+        ax.set_xticks(bin_centers)
+        ax.set_xticklabels([f"{int(bin)}" for bin in bins[:-1]])
+        
+        ax.grid(True, which='both', linestyle='--', linewidth=0.5, color='grey', alpha=0.5)
+        figure.tight_layout()
+        
+        while self.remainingLeavesLayout.count():
+            child = self.remainingLeavesLayout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+        
+        canvas = FigureCanvas(figure)
+        self.remainingLeavesLayout.addWidget(canvas)
+
+
+
+
+
 
     def displayMessage(self, message):
         # Clear the previous figure and display a message
@@ -985,33 +1101,47 @@ class ApplicationWindow(QMainWindow):
         # Draw the canvas with the histogram
         self.canvas.draw()
     
-    def filterData(self):
-        # Start with the original DataFrame
-        global df  # Ensure you're using the global dataframe or replace with your dataframe variable
+    def filterData(self, without_period=False):
+        global df
         filtered_df = df.copy()
 
-        # Check if a period has been selected
-        if self.selections['period']:
-            start_date, end_date = self.selections['period']
-            # Apply period filter only if it's not None
-            filtered_df = filtered_df[
-                (filtered_df['From'] >= start_date) & (filtered_df['To'] <= end_date) |
-                (filtered_df['From'] <= end_date) & (filtered_df['To'] >= start_date)
-            ]
+        if without_period:
+            # Filter for "Annual leave" and apply other selections except for 'leave'
+            filtered_df = filtered_df[filtered_df['Absence Type'] == 'Annual leave']
+            for category, selection in self.selections.items():
+                if selection and category not in ['leave']:  # Skip 'leave' type filtering
+                    column_map = {
+                        'department': 'Departament',
+                        'project': 'Project Name',
+                        'employee': 'Employee Name',
+                    }
+                    if category in column_map:
+                        filtered_column = column_map[category]
+                        filtered_df = filtered_df[filtered_df[filtered_column].isin(selection)]
+        else:
 
-        # Apply filters for other categories (department, project, employee, leave)
-        for category, selection in self.selections.items():
-            if selection and category in ['department', 'project', 'employee', 'leave']:
-                column_map = {
-                    'department': 'Departament',
-                    'project': 'Project Name',
-                    'employee': 'Employee Name',
-                    'leave': 'Absence Type'
-                }
-                filtered_column = column_map[category]
-                filtered_df = filtered_df[filtered_df[filtered_column].isin(selection)]
+            # Apply period filter
+            if self.selections['period']:
+                start_date, end_date = self.selections['period']
+                filtered_df = filtered_df[
+                    ((filtered_df['From'] >= start_date) & (filtered_df['To'] <= end_date)) |
+                    ((filtered_df['From'] <= end_date) & (filtered_df['To'] >= start_date))
+                ]
+            # Apply filters for all categories
+            for category, selection in self.selections.items():
+                if selection:
+                    column_map = {
+                        'department': 'Departament',
+                        'project': 'Project Name',
+                        'employee': 'Employee Name',
+                        'leave': 'Absence Type',
+                    }
+                    if category in column_map:
+                        filtered_column = column_map[category]
+                        filtered_df = filtered_df[filtered_df[filtered_column].isin(selection)]
 
         return filtered_df
+
 
 
 
