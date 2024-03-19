@@ -404,8 +404,8 @@ class MonthlyTableWindow(QDialog):
         worksheet = workbook.create_sheet(title=calendar.month_name[month])
     
         # Write column names
-        for col in range(1, self.tableWidget.columnCount() + 1):
-            header_item = self.tableWidget.horizontalHeaderItem(col - 1)
+        for col in range(1, self.tableWidget.columnCount()+1):
+            header_item = self.tableWidget.horizontalHeaderItem(col-2)
             if header_item is not None:
                 worksheet.cell(row=1, column=col, value=header_item.text())
     
@@ -466,8 +466,7 @@ class MonthlyTableWindow(QDialog):
 
         # Populate the table with data for the current month and year
         month_data, absence_list, absence_type_list = self.get_monthly_data(self.current_year, month)
-        month_name = QDate.longMonthName(self.current_month)
-        self.tableWidget.setHorizontalHeaderItem(0, QTableWidgetItem("Employee"))
+        month_name = QDate.longMonthName(self.current_month).capitalize()
         self.tableWidget.setVerticalHeaderItem(0, QTableWidgetItem(month_name))
         for i in range(1,20):
          self.tableWidget.setVerticalHeaderItem(i, QTableWidgetItem(str(i)))   
@@ -477,6 +476,7 @@ class MonthlyTableWindow(QDialog):
             week_number = date.isocalendar()[1]  # Get the ISO week number
             week_str = f"CW{week_number:02d}"  # Format the week number
             self.tableWidget.setHorizontalHeaderItem(i, QTableWidgetItem(week_str))
+        self.tableWidget.setHorizontalHeaderItem(0, QTableWidgetItem("Employee"))
         for i in range(1, num_days + 1):
             date = datetime.date(self.current_year, month, i)
             day_number = str(i)
@@ -484,8 +484,8 @@ class MonthlyTableWindow(QDialog):
             header_text = f"{day_number}\n{day_name}"
             header_item = QTableWidgetItem(header_text)
             self.tableWidget.setItem(0, i, header_item)
-            self.tableWidget.resizeRowsToContents()
-        self.tableWidget.setHorizontalHeaderItem(num_days+1, QTableWidgetItem('Total'))
+            self.tableWidget.resizeRowsToContents()        
+        self.tableWidget.setItem(0,num_days+1,QTableWidgetItem('Total'))
         self.tableWidget.resizeRowsToContents()
         
         seen_keys = set()
@@ -496,7 +496,6 @@ class MonthlyTableWindow(QDialog):
                 if key not in seen_keys:
                     ordered_names.append(key)
                     seen_keys.add(key)
-        self.tableWidget.setHorizontalHeaderItem(0, QTableWidgetItem("Employee"))
         for row_index, employee_name in enumerate(ordered_names, start=1):
             self.tableWidget.setItem(row_index, 0, QTableWidgetItem(employee_name.strip()))
             for day, inner_dict in month_data.items():
@@ -645,7 +644,6 @@ class MonthlyTableWindow(QDialog):
         # Populate the table with data for the current month and year
         month_data, absence_list, absence_type_list = self.get_monthly_data(self.current_year, self.current_month)
         month_name = QDate.longMonthName(self.current_month).capitalize()
-        tableWidget.setHorizontalHeaderItem(0, QTableWidgetItem("Employee"))
         tableWidget.setVerticalHeaderItem(0, QTableWidgetItem(month_name))
         for i in range(1,20):
             tableWidget.setVerticalHeaderItem(i, QTableWidgetItem(str(i)))   
@@ -655,6 +653,7 @@ class MonthlyTableWindow(QDialog):
             week_number = date.isocalendar()[1]  # Get the ISO week number
             week_str = f"CW{week_number:02d}"  # Format the week number
             tableWidget.setHorizontalHeaderItem(i, QTableWidgetItem(week_str))
+        tableWidget.setHorizontalHeaderItem(0, QTableWidgetItem("Employee"))
         for i in range(1, num_days + 1):
             date = datetime.date(self.current_year, self.current_month, i)
             day_number = str(i)
