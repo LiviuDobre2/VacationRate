@@ -20,7 +20,7 @@ import holidays
 from PyQt5.QtGui import QColor
 import xlsxwriter
 import openpyxl
-from openpyxl.styles import PatternFill, Font, Alignment
+from openpyxl.styles import PatternFill, Font, Alignment,Border,Side
 
 #Ensure that your script's directory path handling is robust for different environments
 script_directory = os.path.dirname(os.path.abspath(__file__))
@@ -277,22 +277,24 @@ class MonthlyTableWindow(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Monthly Data")
         self.current_month = date.today().month
-        self.current_year = 2024  # Assuming the initial year
+        self.current_year = date.today().year  # Assuming the initial year
         self.tableWidget = self.createMonthlyTable()
         layout = QVBoxLayout(self)
-        self.resize(1600, 400)  # Adjust the width and height as needed
+        self.resize(1600, 600)  # Adjust the width and height as needed
         self.setLayout(layout)
 
         previous_month = QDate(self.current_year, self.current_month, 1).addMonths(-1).toString("MMMM")
         next_month = QDate(self.current_year, self.current_month, 1).addMonths(1).toString("MMMM")
 
-        
         # Set the text of the buttons
         self.currentMonthLabel = QLabel()
         current_month = QDate(self.current_year, self.current_month, 1).toString("MMMM")
         self.currentMonthLabel.setText(current_month)
         self.prevButton = QPushButton(previous_month)
         self.nextButton = QPushButton(next_month)
+        self.exportButton = QPushButton("Export to Excel")  # Add export button
+        self.exportButton.setSizePolicy(self.prevButton.sizePolicy())
+        self.exportButton.setMaximumWidth(150)  # Set maximum width
         buttonLayout = QHBoxLayout()
         font = QFont()
         font.setFamily("Arial")
@@ -304,12 +306,16 @@ class MonthlyTableWindow(QDialog):
         buttonLayout.addWidget(self.prevButton)
         buttonLayout.addWidget(self.currentMonthLabel)
         buttonLayout.addWidget(self.nextButton)
-
-        layout.addLayout(buttonLayout)
-        layout.addWidget(self.tableWidget)
+        layout.addLayout(buttonLayout)  # Add button layout under the table
+        layout.addWidget(self.tableWidget)  # Add table widget
+        layout.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.exportButton)  # Add export button below the table
+        
         # Connect button clicks to slots
         self.prevButton.clicked.connect(self.showPreviousMonth)
         self.nextButton.clicked.connect(self.showNextMonth)
+        self.exportButton.clicked.connect(self.export_to_excel)  # Connect export button to export function
+
     def getSelection(self):
         return ex.selections
     def get_monthly_data(self, year, month):
@@ -337,13 +343,13 @@ class MonthlyTableWindow(QDialog):
                 
                 employee_name = row['Employee Name']
                 from_date = row['From'].day  # Extract day from 'From' column
-                if row["From"].month<self.current_month:
-                    row['From']=pd.Timestamp(year=self.current_year,month=self.current_month,day=1)
+                if row["From"].month<month:
+                    row['From']=pd.Timestamp(year=self.current_year,month=month,day=1)
                     from_date=row['From'].day
                 absence_days=row['To'].day-row['From'].day+1
 
-                if row["To"].month>self.current_month:
-                    absence_days=calendar.monthrange(self.current_year,self.current_month)[1]-from_date+1
+                if row["To"].month>month:
+                    absence_days=calendar.monthrange(self.current_year,month)[1]-from_date+1
                 absence_type = row['Absence Type']  # Extract absence type from specified collumn
                 absence_list.append(absence_days)
                 absence_type_list.append(absence_type)
@@ -358,15 +364,40 @@ class MonthlyTableWindow(QDialog):
         else:
             # If no data is found for the specified month and year, return empty dictionaries
             return {}, [], []
-
+    def updateTableForMonth(self, month):
+        # Clear the table
+        self.tableWidget.clearContents()
+        num_days = calendar.monthrange(self.current_year, month)[1]
+        # Populate the table with data for the current month and year
+        # Your existing code to populate the tableWidget for the current month
+        self.updateTable(month)
 
     def export_to_excel(self):
-        excel_final_name = 'table.xlsx'
+        excel_final_name ='table.xlsx'
         file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), excel_final_name)
-    
+
         # Create the workbook
         workbook = openpyxl.Workbook()
         worksheet = workbook.active
+        # Iterate over each month in the year
+        for month in range(1, 13):
+            # Generate the table for the current month
+            self.updateTableForMonth(month)
+
+            # Write data to the Excel worksheet
+            self.writeDataToExcel(workbook, month)
+
+            # Clear the tableWidget for the next month
+            self.tableWidget.clearContents()
+
+        # Save the workbook
+        workbook.save(file_path)
+        # Close the workbook
+        workbook.close()
+        self.updateTable(self.current_month)
+    def writeDataToExcel(self, workbook, month):
+        # Create a new worksheet for the month
+        worksheet = workbook.create_sheet(title=calendar.month_name[month])
     
         # Write column names
         for col in range(1, self.tableWidget.columnCount() + 1):
@@ -391,10 +422,21 @@ class MonthlyTableWindow(QDialog):
                     # Convert Qt color to aRGB hex format
                     qt_color = item.background().color().name()
                     argb_hex_color = f"FF{qt_color[1:]}"  # Add alpha channel FF for full opacity
-                    fill = PatternFill(start_color=argb_hex_color, end_color=argb_hex_color, fill_type="solid")
+                    fill = PatternFill(start_color=argb_hex_color, end_color=argb_hex_color, fill_type="darkGrid")
                     cell.fill = fill
+                    if col==0 or col == self.tableWidget.columnCount() - 1:
+                        fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="darkGrid")
+                        cell.fill=fill
+                # Set column widths based on the widths of the Qt table columns
+        for col in range(self.tableWidget.columnCount()):
+            qt_column_width = self.tableWidget.columnWidth(col)
+            excel_column_letter = openpyxl.utils.get_column_letter(col + 2)  # Adjust for 1-based indexing in Excel
+            worksheet.column_dimensions[excel_column_letter].width = qt_column_width / 7  # Convert from pixels to Excel units
+        # Set alignment to wrap text for all cells
+        for row in worksheet.iter_rows():
+            for cell in row:
+                cell.alignment = Alignment(wrapText=True)
     
-        # Set column widths based on the widths of the Qt table columns
         for col in range(self.tableWidget.columnCount()):
             qt_column_width = self.tableWidget.columnWidth(col)
             excel_column_letter = openpyxl.utils.get_column_letter(col + 2)  # Adjust for 1-based indexing in Excel
@@ -404,42 +446,42 @@ class MonthlyTableWindow(QDialog):
         for row in worksheet.iter_rows():
             for cell in row:
                 cell.alignment = Alignment(wrapText=True)
-    
-        # Save the workbook
-        workbook.save(file_path)
-        # Close the workbook
-        workbook.close()
-    def updateTable(self):
+        thinBorder=Border(left=Side(style='thin'),right=Side(style='thin'),top=Side(style='thin'),bottom=Side(style='thin'))
+        for row in worksheet.iter_rows():
+            for cell in row:
+                cell.border=thinBorder
+
+    def updateTable(self,month):
         # Clear the table
         self.tableWidget.clearContents()
-        num_days = calendar.monthrange(self.current_year, self.current_month)[1]
+        num_days = calendar.monthrange(self.current_year, month)[1]
         self.tableWidget.setColumnCount(num_days + 2)
         light_blue = QColor(173, 216, 230)
 
         # Color the first two rows into light blue
 
         # Populate the table with data for the current month and year
-        month_data, absence_list, absence_type_list = self.get_monthly_data(self.current_year, self.current_month)
+        month_data, absence_list, absence_type_list = self.get_monthly_data(self.current_year, month)
         month_name = QDate.longMonthName(self.current_month)
         self.tableWidget.setHorizontalHeaderItem(0, QTableWidgetItem("Employee"))
         self.tableWidget.setVerticalHeaderItem(0, QTableWidgetItem(month_name))
-        for i in range(1,200):
+        for i in range(1,20):
          self.tableWidget.setVerticalHeaderItem(i, QTableWidgetItem(str(i)))   
         
         for i in range(1, num_days + 1):
-            date = datetime.date(self.current_year, self.current_month, i)
+            date = datetime.date(self.current_year, month, i)
             week_number = date.isocalendar()[1]  # Get the ISO week number
             week_str = f"CW{week_number:02d}"  # Format the week number
             self.tableWidget.setHorizontalHeaderItem(i, QTableWidgetItem(week_str))
         for i in range(1, num_days + 1):
-            date = datetime.date(self.current_year, self.current_month, i)
+            date = datetime.date(self.current_year, month, i)
             day_number = str(i)
             day_name = date.strftime("%A")  # Get the full name of the day
             header_text = f"{day_number}\n{day_name}"
             header_item = QTableWidgetItem(header_text)
             self.tableWidget.setItem(0, i, header_item)
             self.tableWidget.resizeRowsToContents()
-        self.tableWidget.setHorizontalHeaderItem(num_days+2, QTableWidgetItem('Total'))
+        self.tableWidget.setHorizontalHeaderItem(num_days+1, QTableWidgetItem('Total'))
         self.tableWidget.resizeRowsToContents()
         
         seen_keys = set()
@@ -453,14 +495,11 @@ class MonthlyTableWindow(QDialog):
         self.tableWidget.setHorizontalHeaderItem(0, QTableWidgetItem("Employee"))
         for row_index, employee_name in enumerate(ordered_names, start=1):
             self.tableWidget.setItem(row_index, 0, QTableWidgetItem(employee_name.strip()))
-            total_days = 0  # Initialize total days counter
             for day, inner_dict in month_data.items():
                 absence_days = inner_dict.get(employee_name, [0])[0]  # Get absence days for the employee
-                actual_day=datetime.date(self.current_year,self.current_month,day)
+                actual_day=datetime.date(self.current_year,month,day)
                 pandas_day=pd.to_datetime(actual_day)
-                print(pandas_day)
-                total_days += absence_days  # Update total days
-                self.tableWidget.setItem(row_index, num_days + 1, QTableWidgetItem(str(total_days)))
+
         # Update the table with the retrieved data
         for day, inner_dict in month_data.items():
             for employee_name, (absence_days, absence_type) in inner_dict.items():
@@ -474,7 +513,7 @@ class MonthlyTableWindow(QDialog):
                     # Set the absence days in the table cell
                     for i in range(int(absence_days)):
                         if column_index + i <= num_days:  # Ensure it doesn't exceed the maximum day
-                            actual_day=datetime.date(self.current_year,self.current_month,column_index+i)
+                            actual_day=datetime.date(self.current_year,month,column_index+i)
                             pandas_day=pd.to_datetime(actual_day)
                             if pandas_day.dayofweek<5:
                                 color, _ = self.get_absence_type_color(absence_type)
@@ -486,7 +525,18 @@ class MonthlyTableWindow(QDialog):
                                 light_grey = QColor(211,211,211)  # Adjust the RGB values for the desired shade of gray
                                 cell_item.setBackground(light_grey)
                                 self.tableWidget.setItem(row_index, column_index+i, cell_item)
-                    
+        for row_index in range(1, self.tableWidget.rowCount()):  # Iterate through rows
+            total_days = 0
+            for col_index in range(1, num_days + 1):  # Iterate through columns (days)
+                item = self.tableWidget.item(row_index, col_index)
+                if item is not None:
+                    absence_days = item.text()  # Get absence days for the current cell
+                    for day in absence_days:
+                        if day.isalpha() and day != 'W':
+                            total_days += 1  # Add 1 to total days for non-'W' letters
+            # Add the total days taken to a new column at the end of the row
+            total_days_item = QTableWidgetItem(str(total_days))
+            self.tableWidget.setItem(row_index, num_days + 1, total_days_item)
         ro_holidays = self.get_national_holidays(self.current_year,self.current_month)
 
         light_grey = QColor(211,211,211)  # Adjust the RGB values for the desired shade of gray
@@ -506,7 +556,6 @@ class MonthlyTableWindow(QDialog):
             item.setBackground(light_blue)
         self.tableWidget.resizeColumnsToContents()
         self.tableWidget.repaint()
-        self.export_to_excel()
     def get_absence_type_color(self, absence_type):
         # Define colors for each absence type and their lighter versions
         color_map = {
@@ -554,7 +603,7 @@ class MonthlyTableWindow(QDialog):
         next_month = QDate(self.current_year, self.current_month, 1).addMonths(+1).toString("MMMM")
         self.nextButton.setText(next_month)
         # Update the table with data for the next month
-        self.updateTable()
+        self.updateTable(self.current_month)
         
     def showNextMonth(self):
         self.current_month += 1
@@ -569,13 +618,13 @@ class MonthlyTableWindow(QDialog):
         next_month = QDate(self.current_year, self.current_month, 1).addMonths(1).toString("MMMM")
         self.nextButton.setText(next_month)
         # Update the table with data for the next month
-        self.updateTable()
+        self.updateTable(self.current_month)
 
     def createMonthlyTable(self):
         tableWidget = QTableWidget()
         num_days = calendar.monthrange(self.current_year, self.current_month)[1]
         tableWidget.setColumnCount(num_days + 1)
-        tableWidget.setRowCount(200)
+        tableWidget.setRowCount(20)
         headers = [str(day) for day in range(1, 31)]  # Assuming maximum 31 days in a month
 
         tableWidget.setHorizontalHeaderLabels(headers)
@@ -588,7 +637,7 @@ class MonthlyTableWindow(QDialog):
         month_name = QDate.longMonthName(self.current_month)
         tableWidget.setHorizontalHeaderItem(0, QTableWidgetItem("Employee"))
         tableWidget.setVerticalHeaderItem(0, QTableWidgetItem(month_name))
-        for i in range(1,200):
+        for i in range(1,20):
             tableWidget.setVerticalHeaderItem(i, QTableWidgetItem(str(i)))   
         
         for i in range(1, num_days + 1):
@@ -659,6 +708,7 @@ class MonthlyTableWindow(QDialog):
             item.setBackground(light_blue)
         tableWidget.resizeColumnsToContents()
         tableWidget.repaint()
+        
         return tableWidget
     
 class ApplicationWindow(QMainWindow):
