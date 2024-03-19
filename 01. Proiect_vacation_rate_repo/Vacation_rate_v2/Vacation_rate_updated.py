@@ -337,6 +337,7 @@ class MonthlyTableWindow(QDialog):
                     if filtered_data['manager'] is not None:
                         monthly_data = monthly_data[monthly_data['Manager Name'].isin(filtered_data['manager'])]
                         monthly_data=monthly_data.drop_duplicates(subset=['Employee Name', 'From'])
+        monthly_data=monthly_data[monthly_data['Request Status'].isin(['Approved','Requested'])]
         if not monthly_data.empty: 
             month_data = {}
             absence_list = []
