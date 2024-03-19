@@ -387,6 +387,7 @@ class MonthlyTableWindow(QDialog):
         # Create the workbook
         workbook = openpyxl.Workbook()
         worksheet = workbook.active
+        workbook.remove(worksheet)
         # Iterate over each month in the year
         for month in range(1, 13):
             # Generate the table for the current month
@@ -397,7 +398,7 @@ class MonthlyTableWindow(QDialog):
 
             # Clear the tableWidget for the next month
             self.tableWidget.clearContents()
-
+        os.startfile(file_path)
         # Save the workbook
         workbook.save(file_path)
         # Close the workbook
@@ -470,9 +471,9 @@ class MonthlyTableWindow(QDialog):
 
         # Populate the table with data for the current month and year
         month_data, absence_list, absence_type_list = self.get_monthly_data(self.current_year, month)
-        month_name = QDate.longMonthName(self.current_month).capitalize()
+        month_name = QDate.longMonthName(month).capitalize()
         self.tableWidget.setVerticalHeaderItem(0, QTableWidgetItem(month_name))
-        for i in range(1,20):
+        for i in range(1,50):
          self.tableWidget.setVerticalHeaderItem(i, QTableWidgetItem(str(i)))   
         
         for i in range(1, num_days + 1):
@@ -553,13 +554,13 @@ class MonthlyTableWindow(QDialog):
             # Add the total days taken to a new column at the end of the row
             total_days_item = QTableWidgetItem(str(total_days))
             self.tableWidget.setItem(row_index, num_days + 1, total_days_item)
-        ro_holidays = self.get_national_holidays(self.current_year,self.current_month)
+        ro_holidays = self.get_national_holidays(self.current_year,month)
 
         light_grey = QColor(211,211,211)  # Adjust the RGB values for the desired shade of gray
 
         for row_index, employee_name in enumerate(ordered_names, start=1):
             for i in range(1, num_days + 1):
-                if QDate(self.current_year, self.current_month, i) in ro_holidays:
+                if QDate(self.current_year, month, i) in ro_holidays:
                     cell_item = QTableWidgetItem('B')
                     cell_item.setBackground(light_grey)
                     self.tableWidget.setItem(row_index, i, cell_item)
@@ -643,7 +644,7 @@ class MonthlyTableWindow(QDialog):
         tableWidget = QTableWidget()
         num_days = calendar.monthrange(self.current_year, self.current_month)[1]
         tableWidget.setColumnCount(num_days + 1)
-        tableWidget.setRowCount(20)
+        tableWidget.setRowCount(50)
         headers = [str(day) for day in range(1, 31)]  # Assuming maximum 31 days in a month
 
         tableWidget.setHorizontalHeaderLabels(headers)
@@ -655,7 +656,7 @@ class MonthlyTableWindow(QDialog):
         month_data, absence_list, absence_type_list = self.get_monthly_data(self.current_year, self.current_month)
         month_name = QDate.longMonthName(self.current_month).capitalize()
         tableWidget.setVerticalHeaderItem(0, QTableWidgetItem(month_name))
-        for i in range(1,20):
+        for i in range(1,50):
             tableWidget.setVerticalHeaderItem(i, QTableWidgetItem(str(i)))   
         
         for i in range(1, num_days + 1):
