@@ -530,11 +530,17 @@ class MonthlyTableWindow(QDialog):
                                 cell_item.setBackground(color)
                                 self.tableWidget.setItem(row_index, column_index+i, cell_item)
                     
+        
                             else:
                                 cell_item = QTableWidgetItem('W')
                                 light_grey = QColor(211,211,211)  # Adjust the RGB values for the desired shade of gray
                                 cell_item.setBackground(light_grey)
                                 self.tableWidget.setItem(row_index, column_index+i, cell_item)
+                            if absence_days == 1.5:
+                               cell_item = QTableWidgetItem('H1')
+                               light_green = QColor(144, 238, 144)
+                               cell_item.setBackground(light_green)
+                               self.tableWidget.setItem(row_index, column_index+i, cell_item)
         for row_index in range(1, self.tableWidget.rowCount()):  # Iterate through rows
             total_days = 0
             for col_index in range(1, num_days + 1):  # Iterate through columns (days)
