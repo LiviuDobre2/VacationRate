@@ -345,6 +345,7 @@ class MonthlyTableWindow(QDialog):
             # Iterate over each row in the monthly data
             for index, row in monthly_data.iterrows():
                 # Extract relevant information from the row
+                absence_days=row['From']-row['To']
                 
                 employee_name = row['Employee Name']
                 from_date = row['From'].day  # Extract day from 'From' column
@@ -356,6 +357,8 @@ class MonthlyTableWindow(QDialog):
                 if row["To"].month>month:
                     absence_days=calendar.monthrange(self.current_year,month)[1]-from_date+1
                 absence_type = row['Absence Type']  # Extract absence type from specified collumn
+                if row["Att./abs. days"]==0.5:
+                    absence_days=1.5
                 absence_list.append(absence_days)
                 absence_type_list.append(absence_type)
                 # If the day is not already in the month_data dictionary, initialize it
@@ -568,7 +571,7 @@ class MonthlyTableWindow(QDialog):
         color_map = {
             'Sick leave': (QColor(255, 192, 203), QColor(255, 224, 230)),
             'Maternity leave': (QColor(255, 165, 0), QColor(255, 204, 102)),
-            'Annual leave': (QColor(144,238,144), QColor(255, 255, 153)),
+            'Annual leave': (QColor(104, 198, 104), QColor(255, 255, 153)),
             'Wedding leave': (QColor(0, 191, 255), QColor(153, 204, 255)),
             'Unpaid leave': (QColor(220, 20, 60), QColor(255, 179, 179)),
             'Floating day': (QColor(65, 105, 225), QColor(173, 216, 230)),
@@ -698,6 +701,11 @@ class MonthlyTableWindow(QDialog):
                                 cell_item = QTableWidgetItem('W')
                                 light_grey = QColor(211,211,211)  # Adjust the RGB values for the desired shade of gray
                                 cell_item.setBackground(light_grey)
+                                tableWidget.setItem(row_index, column_index+i, cell_item)
+                            if absence_days == 1.5:
+                                cell_item = QTableWidgetItem('H1')
+                                light_green = QColor(144, 238, 144)
+                                cell_item.setBackground(light_green)
                                 tableWidget.setItem(row_index, column_index+i, cell_item)
         ro_holidays = self.get_national_holidays(self.current_year,self.current_month)
 
@@ -860,7 +868,6 @@ class ApplicationWindow(QMainWindow):
         filtered_df = self.filterData()
         bin_size = self.determine_bin_size()
         aggregated_data = self.aggregate_data(filtered_df, bin_size)
-        print(filtered_df)
         self.createHistogram(filtered_df,bin_size,aggregated_data)
         self.createDoughnutChart() 
 
@@ -962,8 +969,6 @@ class ApplicationWindow(QMainWindow):
         filtered_df['From'] = pd.to_datetime(filtered_df['From'])
         filtered_df['To'] = pd.to_datetime(filtered_df['To'])
         filtered_df_half=filtered_df[filtered_df['Att./abs. days']==0.5]
-        for index, row in filtered_df_half.iterrows():
-           print(pd.date_range(row['From'], row['To']).tolist(),'\n')
         date_sequences_half = [pd.date_range(row['From'], row['To']).tolist() for index, row in filtered_df_half.iterrows()]
         all_dates_half = [date for sublist in date_sequences_half for date in sublist]
 
@@ -1015,7 +1020,6 @@ class ApplicationWindow(QMainWindow):
         elif bin_size == 'month':
             aggregated_df = absences_df.groupby(absences_df['Date'].dt.to_period('M'))['AbsenceDays'].sum().reset_index(name='AbsenceDays')
             aggregated_df['Date'] = aggregated_df['Date'].apply(lambda x: x.start_time.date())
-        print("aici",aggregated_df)
         return aggregated_df
 
 
@@ -1072,7 +1076,6 @@ class ApplicationWindow(QMainWindow):
         if filtered_df.empty or aggregated_data.empty:
             print("No data available for plotting.")
             return
-        print(bin_size)
         # Clear the previous figure
         self.figure.clear()
         ax = self.figure.add_subplot(111)
