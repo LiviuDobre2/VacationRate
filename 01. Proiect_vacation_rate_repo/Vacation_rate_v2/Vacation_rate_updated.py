@@ -466,12 +466,7 @@ class MonthlyTableWindow(QDialog):
 
         # Populate the table with data for the current month and year
         month_data, absence_list, absence_type_list = self.get_monthly_data(self.current_year, month)
-<<<<<<< HEAD
-        month_name = QDate.longMonthName(self.current_month)
-        self.tableWidget.setHorizontalHeaderItem(0, QTableWidgetItem("Employee"))
-=======
         month_name = QDate.longMonthName(self.current_month).capitalize()
->>>>>>> 1e3e4a3afaf247c55a745b35dc01da30ff29a810
         self.tableWidget.setVerticalHeaderItem(0, QTableWidgetItem(month_name))
         for i in range(1,20):
          self.tableWidget.setVerticalHeaderItem(i, QTableWidgetItem(str(i)))   
@@ -489,13 +484,8 @@ class MonthlyTableWindow(QDialog):
             header_text = f"{day_number}\n{day_name}"
             header_item = QTableWidgetItem(header_text)
             self.tableWidget.setItem(0, i, header_item)
-<<<<<<< HEAD
-            self.tableWidget.resizeRowsToContents()
-        self.tableWidget.setHorizontalHeaderItem(num_days+1, QTableWidgetItem('Total'))
-=======
             self.tableWidget.resizeRowsToContents()        
         self.tableWidget.setItem(0,num_days+1,QTableWidgetItem('Total'))
->>>>>>> 1e3e4a3afaf247c55a745b35dc01da30ff29a810
         self.tableWidget.resizeRowsToContents()
         
         seen_keys = set()
