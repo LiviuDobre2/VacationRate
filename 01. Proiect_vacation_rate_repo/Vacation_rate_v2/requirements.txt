@@ -1,0 +1,4 @@
+pandas==2.2.0
+matplotlib==3.8.3
+PyQt5==5.15.10
+holidays==0.44

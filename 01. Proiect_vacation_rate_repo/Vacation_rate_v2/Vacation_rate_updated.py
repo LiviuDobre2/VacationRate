@@ -18,7 +18,6 @@ import datetime
 from datetime import date
 import holidays
 from PyQt5.QtGui import QColor
-import xlsxwriter
 import openpyxl
 from openpyxl.styles import PatternFill, Font, Alignment,Border,Side
 
@@ -65,6 +64,7 @@ final_df.to_excel('vacationRate_modified.xlsx', index=False, sheet_name='Absence
 excel_final_name ='vacationRate_modified.xlsx'
 excel_final_path = os.path.join(script_directory, excel_final_name)
 df = pd.read_excel(excel_final_path)
+unique_managers=df["Manager Name"].unique().tolist()
 unique_departments = df["Departament"].unique().tolist()
 unique_project = df["Project Name"].unique().tolist()
 unique_employee = df["Employee Name"].unique().tolist()
@@ -333,6 +333,10 @@ class MonthlyTableWindow(QDialog):
                 if filtered_data['department'] is not None:
                     monthly_data = monthly_data[monthly_data['Departament'].isin(filtered_data['department'])]
                     monthly_data=monthly_data.drop_duplicates(subset=['Employee Name', 'From'])
+                else:
+                    if filtered_data['manager'] is not None:
+                        monthly_data = monthly_data[monthly_data['Manager Name'].isin(filtered_data['manager'])]
+                        monthly_data=monthly_data.drop_duplicates(subset=['Employee Name', 'From'])
         if not monthly_data.empty: 
             month_data = {}
             absence_list = []
@@ -400,8 +404,8 @@ class MonthlyTableWindow(QDialog):
         worksheet = workbook.create_sheet(title=calendar.month_name[month])
     
         # Write column names
-        for col in range(1, self.tableWidget.columnCount() + 1):
-            header_item = self.tableWidget.horizontalHeaderItem(col - 1)
+        for col in range(1, self.tableWidget.columnCount()+1):
+            header_item = self.tableWidget.horizontalHeaderItem(col-2)
             if header_item is not None:
                 worksheet.cell(row=1, column=col, value=header_item.text())
     
@@ -462,8 +466,12 @@ class MonthlyTableWindow(QDialog):
 
         # Populate the table with data for the current month and year
         month_data, absence_list, absence_type_list = self.get_monthly_data(self.current_year, month)
+<<<<<<< HEAD
         month_name = QDate.longMonthName(self.current_month)
         self.tableWidget.setHorizontalHeaderItem(0, QTableWidgetItem("Employee"))
+=======
+        month_name = QDate.longMonthName(self.current_month).capitalize()
+>>>>>>> 1e3e4a3afaf247c55a745b35dc01da30ff29a810
         self.tableWidget.setVerticalHeaderItem(0, QTableWidgetItem(month_name))
         for i in range(1,20):
          self.tableWidget.setVerticalHeaderItem(i, QTableWidgetItem(str(i)))   
@@ -473,6 +481,7 @@ class MonthlyTableWindow(QDialog):
             week_number = date.isocalendar()[1]  # Get the ISO week number
             week_str = f"CW{week_number:02d}"  # Format the week number
             self.tableWidget.setHorizontalHeaderItem(i, QTableWidgetItem(week_str))
+        self.tableWidget.setHorizontalHeaderItem(0, QTableWidgetItem("Employee"))
         for i in range(1, num_days + 1):
             date = datetime.date(self.current_year, month, i)
             day_number = str(i)
@@ -480,8 +489,13 @@ class MonthlyTableWindow(QDialog):
             header_text = f"{day_number}\n{day_name}"
             header_item = QTableWidgetItem(header_text)
             self.tableWidget.setItem(0, i, header_item)
+<<<<<<< HEAD
             self.tableWidget.resizeRowsToContents()
         self.tableWidget.setHorizontalHeaderItem(num_days+1, QTableWidgetItem('Total'))
+=======
+            self.tableWidget.resizeRowsToContents()        
+        self.tableWidget.setItem(0,num_days+1,QTableWidgetItem('Total'))
+>>>>>>> 1e3e4a3afaf247c55a745b35dc01da30ff29a810
         self.tableWidget.resizeRowsToContents()
         
         seen_keys = set()
@@ -492,7 +506,6 @@ class MonthlyTableWindow(QDialog):
                 if key not in seen_keys:
                     ordered_names.append(key)
                     seen_keys.add(key)
-        self.tableWidget.setHorizontalHeaderItem(0, QTableWidgetItem("Employee"))
         for row_index, employee_name in enumerate(ordered_names, start=1):
             self.tableWidget.setItem(row_index, 0, QTableWidgetItem(employee_name.strip()))
             for day, inner_dict in month_data.items():
@@ -502,7 +515,9 @@ class MonthlyTableWindow(QDialog):
 
         # Update the table with the retrieved data
         for day, inner_dict in month_data.items():
+            
             for employee_name, (absence_days, absence_type) in inner_dict.items():
+              
                 employee_name = employee_name.strip()  # Trim whitespace from employee name
                 # Find the row index corresponding to the employee name
                 items = self.tableWidget.findItems(employee_name, Qt.MatchExactly)
@@ -520,6 +535,7 @@ class MonthlyTableWindow(QDialog):
                                 cell_item = QTableWidgetItem(self.get_absence_letter(absence_type))
                                 cell_item.setBackground(color)
                                 self.tableWidget.setItem(row_index, column_index+i, cell_item)
+                    
                             else:
                                 cell_item = QTableWidgetItem('W')
                                 light_grey = QColor(211,211,211)  # Adjust the RGB values for the desired shade of gray
@@ -564,7 +580,8 @@ class MonthlyTableWindow(QDialog):
             'Annual leave': (QColor(144,238,144), QColor(255, 255, 153)),
             'Wedding leave': (QColor(0, 191, 255), QColor(153, 204, 255)),
             'Unpaid leave': (QColor(220, 20, 60), QColor(255, 179, 179)),
-            'Floating day': (QColor(65, 105, 225), QColor(173, 216, 230))
+            'Floating day': (QColor(65, 105, 225), QColor(173, 216, 230)),
+            'Bereavement leave': (QColor(169,169,169),QColor(211,211,211))
         }
         # Return the corresponding color, or default to white if absence type is not found
         return color_map.get(absence_type, (Qt.white, Qt.white))
@@ -581,6 +598,8 @@ class MonthlyTableWindow(QDialog):
             return "U"
         elif absence_type == "Floating day":
             return "F"
+        elif absence_type == "Bereavement leave":
+            return "D"
         else:
             return "X"  # Default to 'X' for unknown absence types
     def get_national_holidays(self, year, month):
@@ -634,8 +653,7 @@ class MonthlyTableWindow(QDialog):
 
         # Populate the table with data for the current month and year
         month_data, absence_list, absence_type_list = self.get_monthly_data(self.current_year, self.current_month)
-        month_name = QDate.longMonthName(self.current_month)
-        tableWidget.setHorizontalHeaderItem(0, QTableWidgetItem("Employee"))
+        month_name = QDate.longMonthName(self.current_month).capitalize()
         tableWidget.setVerticalHeaderItem(0, QTableWidgetItem(month_name))
         for i in range(1,20):
             tableWidget.setVerticalHeaderItem(i, QTableWidgetItem(str(i)))   
@@ -645,6 +663,7 @@ class MonthlyTableWindow(QDialog):
             week_number = date.isocalendar()[1]  # Get the ISO week number
             week_str = f"CW{week_number:02d}"  # Format the week number
             tableWidget.setHorizontalHeaderItem(i, QTableWidgetItem(week_str))
+        tableWidget.setHorizontalHeaderItem(0, QTableWidgetItem("Employee"))
         for i in range(1, num_days + 1):
             date = datetime.date(self.current_year, self.current_month, i)
             day_number = str(i)
@@ -719,6 +738,7 @@ class ApplicationWindow(QMainWindow):
             'project': None,
             'employee': None,
             'leave': None,
+            'manager': None,
             'period': (datetime.datetime(2024,1,1),datetime.datetime(2024,12,31))
         }
         self.title = 'Vacation Rate App'
@@ -756,6 +776,9 @@ class ApplicationWindow(QMainWindow):
         self.periodButton.clicked.connect(self.showPeriodDialog)
         self.departmentButton = QPushButton('Department')
         self.departmentButton.clicked.connect(lambda: self.showSelectionDialog(unique_departments, 'Select Department'))
+        
+        self.managerButton = QPushButton('Manager')
+        self.managerButton.clicked.connect(lambda: self.showSelectionDialog(unique_managers, 'Select Manager'))
         self.projectButton = QPushButton('Project')
         self.projectButton.clicked.connect(lambda: self.showSelectionDialog(unique_project, 'Select Project'))
         self.employeeButton = QPushButton('Employee')
@@ -765,7 +788,7 @@ class ApplicationWindow(QMainWindow):
 
         # Add buttons to the layout
         buttons = [
-            self.openMonthlyTableButton, self.periodButton, self.departmentButton,
+            self.openMonthlyTableButton,self.managerButton, self.periodButton, self.departmentButton,
             self.projectButton, self.employeeButton, self.typeOfLeaveButton
         ]
         for button in buttons:
@@ -895,7 +918,8 @@ class ApplicationWindow(QMainWindow):
             'Select Department': 'department',
             'Select Project': 'project',
             'Select Employee': 'employee',
-            'Select Type of Leave': 'leave'
+            'Select Type of Leave': 'leave',
+            'Select Manager' : 'manager'
         }
         category_key = category_key_map.get(category)
         if category_key:
