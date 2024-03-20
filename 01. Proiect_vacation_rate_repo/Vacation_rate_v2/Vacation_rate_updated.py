@@ -401,12 +401,13 @@ class MonthlyTableWindow(QDialog):
 
             # Clear the tableWidget for the next month
             self.tableWidget.clearContents()
-        os.startfile(file_path)
+
         # Save the workbook
         workbook.save(file_path)
         # Close the workbook
         workbook.close()
         self.updateTable(self.current_month)
+        os.startfile(file_path)
     def writeDataToExcel(self, workbook, month):
         # Create a new worksheet for the month
         worksheet = workbook.create_sheet(title=calendar.month_name[month])
@@ -837,10 +838,7 @@ class ApplicationWindow(QMainWindow):
         centralWidget = QWidget()
         centralWidget.setLayout(mainLayout)
         self.setCentralWidget(centralWidget)
-        filtered_df = self.filterData()
-        bin_size = self.determine_bin_size()
-        aggregated_data = self.aggregate_data(filtered_df, bin_size)
-        self.createHistogram(filtered_df,bin_size,aggregated_data)
+        self.createHistogram()
         self.createDoughnutChart()
         self.createRemainingLeavesChart()
         self.show()
@@ -880,10 +878,8 @@ class ApplicationWindow(QMainWindow):
         self.selections['period'] = (start_date, end_date)
         print(f"Custom period received in main window: {start_date} to {end_date}")
         print("Current selections:", self.selections)
-        filtered_df = self.filterData()
-        bin_size = self.determine_bin_size()
-        aggregated_data = self.aggregate_data(filtered_df, bin_size)
-        self.createHistogram(filtered_df,bin_size,aggregated_data)
+
+        self.createHistogram()
         self.createDoughnutChart() 
 
 
@@ -916,10 +912,7 @@ class ApplicationWindow(QMainWindow):
                 self.selections['period'] = None
 
         # After setting the period, update the histogram
-        filtered_df = self.filterData()
-        bin_size = self.determine_bin_size()
-        aggregated_data = self.aggregate_data(filtered_df, bin_size)
-        self.createHistogram(filtered_df,bin_size,aggregated_data)
+        self.createHistogram()
         self.createDoughnutChart()
         self.createRemainingLeavesChart()
 
@@ -940,10 +933,7 @@ class ApplicationWindow(QMainWindow):
             self.selections[category_key] = selections
             print(f"{category_key} selected: {selections}")
         print("Current selections:", self.selections)
-        filtered_df = self.filterData()
-        bin_size = self.determine_bin_size()
-        aggregated_data = self.aggregate_data(filtered_df, bin_size)
-        self.createHistogram(filtered_df,bin_size,aggregated_data)
+        self.createHistogram()
         self.createDoughnutChart()
         self.createRemainingLeavesChart()
 
