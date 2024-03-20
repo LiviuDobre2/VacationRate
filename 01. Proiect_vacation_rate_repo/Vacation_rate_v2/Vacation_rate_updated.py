@@ -750,7 +750,7 @@ class ApplicationWindow(QMainWindow):
             'employee': None,
             'leave': None,
             'manager': None,
-            'period': (datetime.datetime(2024,1,1),datetime.datetime(2024,12,31))
+            'period': None
         }
         self.title = 'Vacation Rate App'
         self.currentDialog = None  
