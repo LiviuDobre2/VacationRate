@@ -823,9 +823,19 @@ class ApplicationWindow(QMainWindow):
         self.remainingLeavesLayout = QVBoxLayout(self.remainingLeavesTab)
 
         # Setup the histogram tab with a matplotlib canvas
-        self.figure = Figure()
-        self.canvas = FigureCanvas(self.figure)
-        self.histogramLayout.addWidget(self.canvas)
+        self.figureHistogram = Figure()
+        self.canvasHistogram = FigureCanvas(self.figureHistogram)
+        self.histogramLayout.addWidget(self.canvasHistogram)
+
+        # Doughnut Chart
+        self.figureDoughnut = Figure(figsize=(10, 7))
+        self.canvasDoughnut = FigureCanvas(self.figureDoughnut)
+        self.doughnutChartLayout.addWidget(self.canvasDoughnut)
+
+        # Remaining Leaves Chart
+        self.figureLeaves = Figure(figsize=(10, 6))
+        self.canvasLeaves = FigureCanvas(self.figureLeaves)
+        self.remainingLeavesLayout.addWidget(self.canvasLeaves)
 
         # No need to setup the doughnut chart here; it will be initialized in createDoughnutChart()
 
@@ -884,38 +894,43 @@ class ApplicationWindow(QMainWindow):
 
 
     def handlePredefinedPeriod(self, period):
-        global df  # Make sure to use the global dataframe if needed
+        global df  # Ensure 'df' is the DataFrame loaded from your Excel file
+
+        # Ensure 'From' and 'To' columns are datetime
+        df['From'] = pd.to_datetime(df['From'])
+        df['To'] = pd.to_datetime(df['To'])
 
         if period == "All Available Periods":
-            # If "All Available Periods" is selected, remove any period filters
+            # Set period to None to indicate no date filtering should be applied
             self.selections['period'] = None
             print("All available data will be displayed.")
         else:
-            # Convert 'From' and 'To' columns to datetime if not already done
-            df['From'] = pd.to_datetime(df['From'])
-            df['To'] = pd.to_datetime(df['To'])
-
             # Determine the month number for the selected period
             month_num = [QDate.longMonthName(i) for i in range(1, 13)].index(period) + 1
-            
-            # Filter data to find the years available for the selected month
-            years_with_data = df[df['From'].dt.month == month_num]['From'].dt.year.unique()
-            if years_with_data.size > 0:
-                # Prefer the most recent year with data for the selected month
-                selected_year = max(years_with_data)
+
+            # Count entries for each year, considering both 'From' and 'To' columns to account for all relevant data
+            year_counts = df['From'].dt.year.value_counts() + df['To'].dt.year.value_counts()
+
+            if not year_counts.empty:
+                # Select the year with the most entries
+                selected_year = year_counts.idxmax()
+
+                # Define the period for the selected month of that year
                 start_date = pd.Timestamp(year=selected_year, month=month_num, day=1)
                 end_date = start_date + pd.offsets.MonthEnd()
                 self.selections['period'] = (start_date, end_date)
-                print(f"Selected period: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
+                print(f"Period set to: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
+
+        
             else:
-                print("No data available for the selected period.")
+                # Handle case where the dataset is empty or does not have valid date information
+                print("The dataset does not contain valid date information.")
                 self.selections['period'] = None
 
-        # After setting the period, update the histogram
+        # Even if the specific month may have no data, we proceed to update the graphs to reflect this selection
         self.createHistogram()
         self.createDoughnutChart()
         self.createRemainingLeavesChart()
-
 
 
     
@@ -1058,10 +1073,7 @@ class ApplicationWindow(QMainWindow):
 
 
     def createDoughnutChart(self):
-        while self.doughnutChartLayout.count():
-            child = self.doughnutChartLayout.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
+        
         filtered_df = self.filterData()
 
         # Aggregate the leave types
@@ -1077,7 +1089,8 @@ class ApplicationWindow(QMainWindow):
             main_categories["Others"] = others
 
         # Create the main pie chart
-        fig, ax = plt.subplots(figsize=(10, 7))  # Increase figure size for the primary chart
+        self.figureDoughnut.clear()  # Clear previous plot
+        ax = self.figureDoughnut.add_subplot(111)
         wedges, texts, autotexts = ax.pie(main_categories.values, labels=main_categories.index, autopct='%1.1f%%', startangle=90)
 
         # Add a legend outside the pie chart
@@ -1092,13 +1105,12 @@ class ApplicationWindow(QMainWindow):
             small_categories = leave_counts[leave_counts / total < 0.05]
             # Create a detailed text annotation for "Others"
             detailed_text = "Details for 'Others':\n" + "\n".join([f"{k}: {v/total*100:.1f}%" for k, v in small_categories.items()])
-            fig.text(0.75, 0.2, detailed_text, ha='left', va='center', fontsize=10, fontweight='bold', bbox=dict(facecolor='white', alpha=0.5))
+            ax.text(1, -1, detailed_text, ha='left', va='bottom', fontsize=10, fontweight='bold', bbox=dict(facecolor='white', alpha=0.5))
 
-        fig.tight_layout()
+        self.figureDoughnut.tight_layout()
 
-        # Clear the existing layout in the doughnut chart tab and add the new canvas
-        canvas = FigureCanvas(fig)
-        self.doughnutChartLayout.addWidget(canvas)
+ 
+        self.canvasDoughnut.draw()
 
 
 
@@ -1108,8 +1120,8 @@ class ApplicationWindow(QMainWindow):
         aggregated_data = self.aggregate_data(bin_size)
 
         # Clear the previous figure
-        self.figure.clear()
-        ax = self.figure.add_subplot(111)
+        self.figureHistogram.clear()
+        ax = self.figureHistogram.add_subplot(111)
         ax2 = ax.twinx()  # Create a secondary y-axis for cumulative percentages
 
 
@@ -1184,15 +1196,15 @@ class ApplicationWindow(QMainWindow):
             # Display message if no data
             ax.text(0.5, 0.5, 'No data to display for the selected filters', horizontalalignment='center', verticalalignment='center', transform=ax.transAxes)
 
-        self.figure.subplots_adjust(left=0.07, right=0.95, top=0.95, bottom=0.15)
-        self.canvas.draw()
+        self.figureHistogram.subplots_adjust(left=0.07, right=0.95, top=0.95, bottom=0.15)
+        self.canvasHistogram.draw()
 
 
     def createRemainingLeavesChart(self):
         histogram_data, bins, remaining_leaves = self.calculate_remaining_leaves()
         
-        figure = Figure(figsize=(10, 6))
-        ax = figure.add_subplot(111)
+        self.figureLeaves.clear()
+        ax = self.figureLeaves.add_subplot(111)
         
         bin_centers = 0.5 * (bins[:-1] + bins[1:])
         mean = np.mean(remaining_leaves)
@@ -1224,19 +1236,9 @@ class ApplicationWindow(QMainWindow):
         ax.set_xticklabels([f"{int(bin)}" for bin in bins[:-1]])
         
         ax.grid(True, which='both', linestyle='--', linewidth=0.5, color='grey', alpha=0.5)
-        figure.tight_layout()
+        self.figureLeaves.tight_layout() 
         
-        while self.remainingLeavesLayout.count():
-            child = self.remainingLeavesLayout.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
-        
-        canvas = FigureCanvas(figure)
-        self.remainingLeavesLayout.addWidget(canvas)
-
-
-
-
+        self.canvasLeaves.draw()
 
 
     def displayMessage(self, message):
@@ -1246,25 +1248,6 @@ class ApplicationWindow(QMainWindow):
         ax.text(0.5, 0.5, message, horizontalalignment='center', verticalalignment='center', transform=ax.transAxes)
         self.canvas.draw()
 
-    def plotHistogram(self, absence_counts):
-        # Clear the previous figure
-        self.figure.clear()
-        ax = self.figure.add_subplot(111)
-        ax.bar(absence_counts.index, absence_counts['AbsenceDays'], width=20, color='blue', alpha=0.7)
-
-        # Formatting the date on X-axis to make it more readable
-        ax.xaxis_date()
-        ax.xaxis.set_major_locator(mdates.MonthLocator())
-        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
-        ax.figure.autofmt_xdate()
-
-        # Set titles and labels
-        ax.set_title('Monthly Absence Counts')
-        ax.set_xlabel('Month')
-        ax.set_ylabel('Total Absence Days')
-
-        # Draw the canvas with the histogram
-        self.canvas.draw()
     
     def filterData(self, without_period=False):
         global df
