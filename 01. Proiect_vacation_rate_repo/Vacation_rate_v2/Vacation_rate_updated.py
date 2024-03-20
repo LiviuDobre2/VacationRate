@@ -67,7 +67,8 @@ final_df.to_excel(excel_final_path, index=False, sheet_name='Absences')
 
 
 df = pd.read_excel(excel_final_path)
-unique_managers=df["Manager Name"].unique().tolist()
+df['From'] = pd.to_datetime(df['From'])
+df['To'] = pd.to_datetime(df['To'])
 unique_departments = df["Departament"].unique().tolist()
 unique_project = df["Project Name"].unique().tolist()
 unique_employee = df["Employee Name"].unique().tolist()
@@ -878,8 +879,7 @@ class ApplicationWindow(QMainWindow):
         self.selections['period'] = (start_date, end_date)
         print(f"Custom period received in main window: {start_date} to {end_date}")
         print("Current selections:", self.selections)
-
-        self.createHistogram()
+        self.createHistogram() 
         self.createDoughnutChart() 
 
 
@@ -993,9 +993,6 @@ class ApplicationWindow(QMainWindow):
 
         filtered_df['From'] = pd.to_datetime(filtered_df['From'])
         filtered_df['To'] = pd.to_datetime(filtered_df['To'])
-        filtered_df_half=filtered_df[filtered_df['Att./abs. days']==0.5]
-        date_sequences_half = [pd.date_range(row['From'], row['To']).tolist() for index, row in filtered_df_half.iterrows()]
-        all_dates_half = [date for sublist in date_sequences_half for date in sublist]
 
         if self.selections.get('project') is None:
             filtered_df = filtered_df.drop_duplicates(subset=['Employee ID', 'From', 'To', 'Absence Type'])
@@ -1041,6 +1038,7 @@ class ApplicationWindow(QMainWindow):
 
         # Combine the aggregated dataframes
         aggregated_df = aggregated_all_df.merge(aggregated_annual_leave_df[['Date', 'CumulativePercentage']], on='Date', how='left').fillna(method='ffill')
+
         return aggregated_df
 
 
@@ -1109,9 +1107,6 @@ class ApplicationWindow(QMainWindow):
         bin_size = self.determine_bin_size()
         aggregated_data = self.aggregate_data(bin_size)
 
-        if filtered_df.empty or aggregated_data.empty:
-            print("No data available for plotting.")
-            return
         # Clear the previous figure
         self.figure.clear()
         ax = self.figure.add_subplot(111)
@@ -1146,47 +1141,49 @@ class ApplicationWindow(QMainWindow):
             # Plot the histogram with the specified color and add a label for the blue bars
             bars = ax.bar(aggregated_data['Date'], aggregated_data['AbsenceDays'], width=bar_width, color=(173/255, 216/255, 230/255), alpha=0.7, label='Absence Days Taken')
 
-        # Plot the histogram with the specified color and add a label for the blue bars
-        bars = ax.bar(aggregated_data['Date'], aggregated_data['AbsenceDays'], width=bar_width, color=(173/255, 216/255, 230/255), alpha=0.7, label='Absence Days Taken')
+            # Plotting the cumulative percentage and adding a label for the red line
+            ax2.plot(aggregated_data['Date'], aggregated_data['CumulativePercentage'], color='red', marker='o', linestyle='-', label='Cumulative Days Taken (%)')
+            ax2.set_ylabel('Cumulative Days Taken (%)', color='red')
+            ax2.tick_params(axis='y', colors='red')
+            
+            # Adjust x-axis formatting based on bin size
+            if bin_size == 'day':
+                ax.xaxis.set_major_locator(mdates.DayLocator())
+                ax.xaxis.set_major_formatter(mdates.DateFormatter('%d-%m-%Y'))
+            elif bin_size == 'week':
+                ax.xaxis.set_major_locator(mdates.WeekdayLocator())
+                ax.xaxis.set_major_formatter(mdates.DateFormatter('%U - %Y'))
+            elif bin_size == 'month':
+                ax.xaxis.set_major_locator(mdates.MonthLocator())
+                ax.xaxis.set_major_formatter(mdates.DateFormatter('%B %Y'))
+            ax.figure.autofmt_xdate()  # Auto-format date labels
 
-        # Plotting the cumulative percentage and adding a label for the red line
-        ax2.plot(aggregated_data['Date'], aggregated_data['CumulativePercentage'], color='red', marker='o', linestyle='-', label='Cumulative Days Taken (%)')
-        ax2.set_ylabel('Cumulative Days Taken (%)', color='red')
-        ax2.tick_params(axis='y', colors='red')
+            # Annotate each bin with its value
+            for bar in bars:
+                height = bar.get_height()
+                ax.annotate(f'{int(height)}',
+                            xy=(bar.get_x() + bar.get_width() / 2, height),
+                            xytext=(0, 3),  # 3 points vertical offset
+                            textcoords="offset points",
+                            ha='center', va='bottom')
 
-        # Adjust x-axis formatting based on bin size
-        if bin_size == 'day':
-            ax.xaxis.set_major_locator(mdates.DayLocator())
-            ax.xaxis.set_major_formatter(mdates.DateFormatter('%d-%m-%Y'))
-        elif bin_size == 'week':
-            ax.xaxis.set_major_locator(mdates.WeekdayLocator())
-            ax.xaxis.set_major_formatter(mdates.DateFormatter('%U - %Y'))
-        elif bin_size == 'month':
-            ax.xaxis.set_major_locator(mdates.MonthLocator())
-            ax.xaxis.set_major_formatter(mdates.DateFormatter('%B %Y'))
-        ax.figure.autofmt_xdate()  # Auto-format date labels
+            # Add a grid for better readability
+            ax.grid(True, which='both', linestyle='--', linewidth=0.5, color='grey', alpha=0.5)
 
-        # Annotate each bin with its value
-        for bar in bars:
-            height = bar.get_height()
-            ax.annotate(f'{int(height)}',
-                        xy=(bar.get_x() + bar.get_width() / 2, height),
-                        xytext=(0, 3),  # 3 points vertical offset
-                        textcoords="offset points",
-                        ha='center', va='bottom')
+            # Set titles and labels
+            ax.set_title('Absence Counts')
+            ax.set_xlabel('Period')
+            ax.set_ylabel('Total Absence Days')
 
-        # Add a grid for better readability
-        ax.grid(True, which='both', linestyle='--', linewidth=0.5, color='grey', alpha=0.5)
+            # Combining legends from both axes
+            handles, labels = ax.get_legend_handles_labels()
+            handles2, labels2 = ax2.get_legend_handles_labels()
+            ax2.legend(handles + handles2, labels + labels2, loc='upper left')
 
-        # Set titles and labels
-        ax.set_title('Absence Counts')
-        ax.set_xlabel('Period')
-        ax.set_ylabel('Total Absence Days')
+        else:
+            # Display message if no data
+            ax.text(0.5, 0.5, 'No data to display for the selected filters', horizontalalignment='center', verticalalignment='center', transform=ax.transAxes)
 
-        # Combining legends from both axes
-        handles, labels = ax.get_legend_handles_labels()
-        handles2, labels2 = ax2.get_legend_handles_labels()
-        ax2.legend(handles + handles2, labels + labels2, loc='upper left') 
         self.figure.subplots_adjust(left=0.07, right=0.95, top=0.95, bottom=0.15)
         self.canvas.draw()
 
