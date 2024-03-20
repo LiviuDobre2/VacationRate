@@ -20,6 +20,8 @@ from datetime import date
 import holidays
 from scipy.stats import norm
 from PyQt5.QtGui import QColor
+import openpyxl
+from openpyxl.styles import PatternFill, Font, Alignment,Border,Side
 
 #Ensure that your script's directory path handling is robust for different environments
 script_directory = os.path.dirname(os.path.abspath(__file__))
@@ -65,8 +67,7 @@ final_df.to_excel(excel_final_path, index=False, sheet_name='Absences')
 
 
 df = pd.read_excel(excel_final_path)
-df['From'] = pd.to_datetime(df['From'])
-df['To'] = pd.to_datetime(df['To'])
+unique_managers=df["Manager Name"].unique().tolist()
 unique_departments = df["Departament"].unique().tolist()
 unique_project = df["Project Name"].unique().tolist()
 unique_employee = df["Employee Name"].unique().tolist()
@@ -279,22 +280,24 @@ class MonthlyTableWindow(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Monthly Data")
         self.current_month = date.today().month
-        self.current_year = 2024  # Assuming the initial year
+        self.current_year = date.today().year  # Assuming the initial year
         self.tableWidget = self.createMonthlyTable()
         layout = QVBoxLayout(self)
-        self.resize(1600, 400)  # Adjust the width and height as needed
+        self.resize(1600, 600)  # Adjust the width and height as needed
         self.setLayout(layout)
 
         previous_month = QDate(self.current_year, self.current_month, 1).addMonths(-1).toString("MMMM")
         next_month = QDate(self.current_year, self.current_month, 1).addMonths(1).toString("MMMM")
 
-        
         # Set the text of the buttons
         self.currentMonthLabel = QLabel()
         current_month = QDate(self.current_year, self.current_month, 1).toString("MMMM")
         self.currentMonthLabel.setText(current_month)
         self.prevButton = QPushButton(previous_month)
         self.nextButton = QPushButton(next_month)
+        self.exportButton = QPushButton("Export to Excel")  # Add export button
+        self.exportButton.setSizePolicy(self.prevButton.sizePolicy())
+        self.exportButton.setMaximumWidth(150)  # Set maximum width
         buttonLayout = QHBoxLayout()
         font = QFont()
         font.setFamily("Arial")
@@ -306,12 +309,16 @@ class MonthlyTableWindow(QDialog):
         buttonLayout.addWidget(self.prevButton)
         buttonLayout.addWidget(self.currentMonthLabel)
         buttonLayout.addWidget(self.nextButton)
-
-        layout.addLayout(buttonLayout)
-        layout.addWidget(self.tableWidget)
+        layout.addLayout(buttonLayout)  # Add button layout under the table
+        layout.addWidget(self.tableWidget)  # Add table widget
+        layout.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.exportButton)  # Add export button below the table
+        
         # Connect button clicks to slots
         self.prevButton.clicked.connect(self.showPreviousMonth)
         self.nextButton.clicked.connect(self.showNextMonth)
+        self.exportButton.clicked.connect(self.export_to_excel)  # Connect export button to export function
+
     def getSelection(self):
         return ex.selections
     def get_monthly_data(self, year, month):
@@ -320,12 +327,20 @@ class MonthlyTableWindow(QDialog):
         monthly_data = df[(df['From'].dt.year == year) & ((df['From'].dt.month == month) | (df['To'].dt.month==month))]
         if filtered_data['employee'] is not None:
             monthly_data=monthly_data[monthly_data['Employee Name'].isin(filtered_data['employee'])]
+            monthly_data=monthly_data.drop_duplicates(subset=['Employee Name', 'From'])
         else: 
             if filtered_data['project'] is not None:
                 monthly_data=monthly_data[monthly_data['Project Name'].isin(filtered_data['project'])]
+                
             else:
                 if filtered_data['department'] is not None:
                     monthly_data = monthly_data[monthly_data['Departament'].isin(filtered_data['department'])]
+                    monthly_data=monthly_data.drop_duplicates(subset=['Employee Name', 'From'])
+                else:
+                    if filtered_data['manager'] is not None:
+                        monthly_data = monthly_data[monthly_data['Manager Name'].isin(filtered_data['manager'])]
+                        monthly_data=monthly_data.drop_duplicates(subset=['Employee Name', 'From'])
+        monthly_data=monthly_data[monthly_data['Request Status'].isin(['Approved','Requested'])]
         if not monthly_data.empty: 
             month_data = {}
             absence_list = []
@@ -333,17 +348,20 @@ class MonthlyTableWindow(QDialog):
             # Iterate over each row in the monthly data
             for index, row in monthly_data.iterrows():
                 # Extract relevant information from the row
+                absence_days=row['From']-row['To']
                 
                 employee_name = row['Employee Name']
                 from_date = row['From'].day  # Extract day from 'From' column
-                if row["From"].month<self.current_month:
-                    row['From']=pd.Timestamp(year=self.current_year,month=self.current_month,day=1)
+                if row["From"].month<month:
+                    row['From']=pd.Timestamp(year=self.current_year,month=month,day=1)
                     from_date=row['From'].day
                 absence_days=row['To'].day-row['From'].day+1
 
-                if row["To"].month>self.current_month:
-                    absence_days=calendar.monthrange(self.current_year,self.current_month)[1]-from_date+1
+                if row["To"].month>month:
+                    absence_days=calendar.monthrange(self.current_year,month)[1]-from_date+1
                 absence_type = row['Absence Type']  # Extract absence type from specified collumn
+                if row["Att./abs. days"]==0.5:
+                    absence_days=1.5
                 absence_list.append(absence_days)
                 absence_type_list.append(absence_type)
                 # If the day is not already in the month_data dictionary, initialize it
@@ -357,36 +375,127 @@ class MonthlyTableWindow(QDialog):
         else:
             # If no data is found for the specified month and year, return empty dictionaries
             return {}, [], []
-    def updateTable(self):
+    def updateTableForMonth(self, month):
         # Clear the table
         self.tableWidget.clearContents()
-        num_days = calendar.monthrange(self.current_year, self.current_month)[1]
-        self.tableWidget.setColumnCount(num_days + 1)
+        num_days = calendar.monthrange(self.current_year, month)[1]
+        # Populate the table with data for the current month and year
+        # Your existing code to populate the tableWidget for the current month
+        self.updateTable(month)
+
+    def export_to_excel(self):
+        excel_final_name ='table.xlsx'
+        file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), excel_final_name)
+
+        # Create the workbook
+        workbook = openpyxl.Workbook()
+        worksheet = workbook.active
+        workbook.remove(worksheet)
+        # Iterate over each month in the year
+        for month in range(1, 13):
+            # Generate the table for the current month
+            self.updateTableForMonth(month)
+
+            # Write data to the Excel worksheet
+            self.writeDataToExcel(workbook, month)
+
+            # Clear the tableWidget for the next month
+            self.tableWidget.clearContents()
+        os.startfile(file_path)
+        # Save the workbook
+        workbook.save(file_path)
+        # Close the workbook
+        workbook.close()
+        self.updateTable(self.current_month)
+    def writeDataToExcel(self, workbook, month):
+        # Create a new worksheet for the month
+        worksheet = workbook.create_sheet(title=calendar.month_name[month])
+    
+        # Write column names
+        for col in range(1, self.tableWidget.columnCount()+1):
+            header_item = self.tableWidget.horizontalHeaderItem(col-2)
+            if header_item is not None:
+                worksheet.cell(row=1, column=col, value=header_item.text())
+    
+        # Write row names
+        for row in range(1, self.tableWidget.rowCount() + 1):
+            header_item = self.tableWidget.verticalHeaderItem(row - 1)
+            if header_item is not None:
+                worksheet.cell(row=row + 1, column=1, value=header_item.text())
+    
+        # Write data along with background colors
+        for row in range(self.tableWidget.rowCount()):
+            for col in range(self.tableWidget.columnCount()):
+                item = self.tableWidget.item(row, col)
+                if item is not None:
+                    cell = worksheet.cell(row=row + 2, column=col + 2)
+                    cell.value = item.text()
+    
+                    # Convert Qt color to aRGB hex format
+                    qt_color = item.background().color().name()
+                    argb_hex_color = f"FF{qt_color[1:]}"  # Add alpha channel FF for full opacity
+                    fill = PatternFill(start_color=argb_hex_color, end_color=argb_hex_color, fill_type="darkGrid")
+                    cell.fill = fill
+                    if col==0 or col == self.tableWidget.columnCount() - 1:
+                        fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="darkGrid")
+                        cell.fill=fill
+                # Set column widths based on the widths of the Qt table columns
+        for col in range(self.tableWidget.columnCount()):
+            qt_column_width = self.tableWidget.columnWidth(col)
+            excel_column_letter = openpyxl.utils.get_column_letter(col + 2)  # Adjust for 1-based indexing in Excel
+            worksheet.column_dimensions[excel_column_letter].width = qt_column_width / 7  # Convert from pixels to Excel units
+        # Set alignment to wrap text for all cells
+        for row in worksheet.iter_rows():
+            for cell in row:
+                cell.alignment = Alignment(wrapText=True)
+    
+        for col in range(self.tableWidget.columnCount()):
+            qt_column_width = self.tableWidget.columnWidth(col)
+            excel_column_letter = openpyxl.utils.get_column_letter(col + 2)  # Adjust for 1-based indexing in Excel
+            worksheet.column_dimensions[excel_column_letter].width = qt_column_width / 7  # Convert from pixels to Excel units
+    
+        # Set alignment to wrap text for all cells
+        for row in worksheet.iter_rows():
+            for cell in row:
+                cell.alignment = Alignment(wrapText=True)
+        thinBorder=Border(left=Side(style='thin'),right=Side(style='thin'),top=Side(style='thin'),bottom=Side(style='thin'))
+        for row in worksheet.iter_rows():
+            for cell in row:
+                cell.border=thinBorder
+
+    def updateTable(self,month):
+        # Clear the table
+        self.tableWidget.clearContents()
+        num_days = calendar.monthrange(self.current_year, month)[1]
+        self.tableWidget.setColumnCount(num_days + 2)
         light_blue = QColor(173, 216, 230)
 
         # Color the first two rows into light blue
 
         # Populate the table with data for the current month and year
-        month_data, absence_list, absence_type_list = self.get_monthly_data(self.current_year, self.current_month)
-        month_name = QDate.longMonthName(self.current_month)
-        self.tableWidget.setHorizontalHeaderItem(0, QTableWidgetItem("Employee"))
+        month_data, absence_list, absence_type_list = self.get_monthly_data(self.current_year, month)
+        month_name = QDate.longMonthName(month).capitalize()
         self.tableWidget.setVerticalHeaderItem(0, QTableWidgetItem(month_name))
-        for i in range(1,11):
+        for i in range(1,50):
          self.tableWidget.setVerticalHeaderItem(i, QTableWidgetItem(str(i)))   
         
         for i in range(1, num_days + 1):
-            date = datetime.date(self.current_year, self.current_month, i)
+            date = datetime.date(self.current_year, month, i)
             week_number = date.isocalendar()[1]  # Get the ISO week number
             week_str = f"CW{week_number:02d}"  # Format the week number
             self.tableWidget.setHorizontalHeaderItem(i, QTableWidgetItem(week_str))
+        self.tableWidget.setHorizontalHeaderItem(0, QTableWidgetItem("Employee"))
         for i in range(1, num_days + 1):
-            date = datetime.date(self.current_year, self.current_month, i)
+            date = datetime.date(self.current_year, month, i)
             day_number = str(i)
             day_name = date.strftime("%A")  # Get the full name of the day
             header_text = f"{day_number}\n{day_name}"
             header_item = QTableWidgetItem(header_text)
             self.tableWidget.setItem(0, i, header_item)
-            self.tableWidget.resizeRowsToContents()
+            self.tableWidget.resizeRowsToContents()        
+        self.tableWidget.setItem(0,num_days+1,QTableWidgetItem('Total'))
+        self.tableWidget.resizeRowsToContents()
+        
         seen_keys = set()
         ordered_names = []
 
@@ -395,13 +504,18 @@ class MonthlyTableWindow(QDialog):
                 if key not in seen_keys:
                     ordered_names.append(key)
                     seen_keys.add(key)
-
-        self.tableWidget.setHorizontalHeaderItem(0, QTableWidgetItem("Employee"))
         for row_index, employee_name in enumerate(ordered_names, start=1):
             self.tableWidget.setItem(row_index, 0, QTableWidgetItem(employee_name.strip()))
+            for day, inner_dict in month_data.items():
+                absence_days = inner_dict.get(employee_name, [0])[0]  # Get absence days for the employee
+                actual_day=datetime.date(self.current_year,month,day)
+                pandas_day=pd.to_datetime(actual_day)
+
         # Update the table with the retrieved data
         for day, inner_dict in month_data.items():
+            
             for employee_name, (absence_days, absence_type) in inner_dict.items():
+              
                 employee_name = employee_name.strip()  # Trim whitespace from employee name
                 # Find the row index corresponding to the employee name
                 items = self.tableWidget.findItems(employee_name, Qt.MatchExactly)
@@ -412,17 +526,44 @@ class MonthlyTableWindow(QDialog):
                     # Set the absence days in the table cell
                     for i in range(int(absence_days)):
                         if column_index + i <= num_days:  # Ensure it doesn't exceed the maximum day
-                            color, _ = self.get_absence_type_color(absence_type)
-                            cell_item = QTableWidgetItem(self.get_absence_letter(absence_type))
-                            cell_item.setBackground(color)
-                            self.tableWidget.setItem(row_index, column_index+i, cell_item)
-        ro_holidays = self.get_national_holidays(self.current_year,self.current_month)
+                            actual_day=datetime.date(self.current_year,month,column_index+i)
+                            pandas_day=pd.to_datetime(actual_day)
+                            if pandas_day.dayofweek<5:
+                                color, _ = self.get_absence_type_color(absence_type)
+                                cell_item = QTableWidgetItem(self.get_absence_letter(absence_type))
+                                cell_item.setBackground(color)
+                                self.tableWidget.setItem(row_index, column_index+i, cell_item)
+                    
+        
+                            else:
+                                cell_item = QTableWidgetItem('W')
+                                light_grey = QColor(211,211,211)  # Adjust the RGB values for the desired shade of gray
+                                cell_item.setBackground(light_grey)
+                                self.tableWidget.setItem(row_index, column_index+i, cell_item)
+                            if absence_days == 1.5:
+                               cell_item = QTableWidgetItem('H1')
+                               light_green = QColor(144, 238, 144)
+                               cell_item.setBackground(light_green)
+                               self.tableWidget.setItem(row_index, column_index+i, cell_item)
+        for row_index in range(1, self.tableWidget.rowCount()):  # Iterate through rows
+            total_days = 0
+            for col_index in range(1, num_days + 1):  # Iterate through columns (days)
+                item = self.tableWidget.item(row_index, col_index)
+                if item is not None:
+                    absence_days = item.text()  # Get absence days for the current cell
+                    for day in absence_days:
+                        if day.isalpha() and day != 'W':
+                            total_days += 1  # Add 1 to total days for non-'W' letters
+            # Add the total days taken to a new column at the end of the row
+            total_days_item = QTableWidgetItem(str(total_days))
+            self.tableWidget.setItem(row_index, num_days + 1, total_days_item)
+        ro_holidays = self.get_national_holidays(self.current_year,month)
 
         light_grey = QColor(211,211,211)  # Adjust the RGB values for the desired shade of gray
 
         for row_index, employee_name in enumerate(ordered_names, start=1):
             for i in range(1, num_days + 1):
-                if QDate(self.current_year, self.current_month, i) in ro_holidays:
+                if QDate(self.current_year, month, i) in ro_holidays:
                     cell_item = QTableWidgetItem('B')
                     cell_item.setBackground(light_grey)
                     self.tableWidget.setItem(row_index, i, cell_item)
@@ -435,16 +576,16 @@ class MonthlyTableWindow(QDialog):
             item.setBackground(light_blue)
         self.tableWidget.resizeColumnsToContents()
         self.tableWidget.repaint()
-
     def get_absence_type_color(self, absence_type):
         # Define colors for each absence type and their lighter versions
         color_map = {
             'Sick leave': (QColor(255, 192, 203), QColor(255, 224, 230)),
             'Maternity leave': (QColor(255, 165, 0), QColor(255, 204, 102)),
-            'Annual leave': (QColor(144,238,144), QColor(255, 255, 153)),
+            'Annual leave': (QColor(104, 198, 104), QColor(255, 255, 153)),
             'Wedding leave': (QColor(0, 191, 255), QColor(153, 204, 255)),
             'Unpaid leave': (QColor(220, 20, 60), QColor(255, 179, 179)),
-            'Floating day': (QColor(65, 105, 225), QColor(173, 216, 230))
+            'Floating day': (QColor(65, 105, 225), QColor(173, 216, 230)),
+            'Bereavement leave': (QColor(169,169,169),QColor(211,211,211))
         }
         # Return the corresponding color, or default to white if absence type is not found
         return color_map.get(absence_type, (Qt.white, Qt.white))
@@ -461,6 +602,8 @@ class MonthlyTableWindow(QDialog):
             return "U"
         elif absence_type == "Floating day":
             return "F"
+        elif absence_type == "Bereavement leave":
+            return "D"
         else:
             return "X"  # Default to 'X' for unknown absence types
     def get_national_holidays(self, year, month):
@@ -483,7 +626,7 @@ class MonthlyTableWindow(QDialog):
         next_month = QDate(self.current_year, self.current_month, 1).addMonths(+1).toString("MMMM")
         self.nextButton.setText(next_month)
         # Update the table with data for the next month
-        self.updateTable()
+        self.updateTable(self.current_month)
         
     def showNextMonth(self):
         self.current_month += 1
@@ -498,13 +641,13 @@ class MonthlyTableWindow(QDialog):
         next_month = QDate(self.current_year, self.current_month, 1).addMonths(1).toString("MMMM")
         self.nextButton.setText(next_month)
         # Update the table with data for the next month
-        self.updateTable()
+        self.updateTable(self.current_month)
 
     def createMonthlyTable(self):
         tableWidget = QTableWidget()
         num_days = calendar.monthrange(self.current_year, self.current_month)[1]
         tableWidget.setColumnCount(num_days + 1)
-        tableWidget.setRowCount(11)
+        tableWidget.setRowCount(50)
         headers = [str(day) for day in range(1, 31)]  # Assuming maximum 31 days in a month
 
         tableWidget.setHorizontalHeaderLabels(headers)
@@ -514,10 +657,9 @@ class MonthlyTableWindow(QDialog):
 
         # Populate the table with data for the current month and year
         month_data, absence_list, absence_type_list = self.get_monthly_data(self.current_year, self.current_month)
-        month_name = QDate.longMonthName(self.current_month)
-        tableWidget.setHorizontalHeaderItem(0, QTableWidgetItem("Employee"))
+        month_name = QDate.longMonthName(self.current_month).capitalize()
         tableWidget.setVerticalHeaderItem(0, QTableWidgetItem(month_name))
-        for i in range(1,11):
+        for i in range(1,50):
             tableWidget.setVerticalHeaderItem(i, QTableWidgetItem(str(i)))   
         
         for i in range(1, num_days + 1):
@@ -525,6 +667,7 @@ class MonthlyTableWindow(QDialog):
             week_number = date.isocalendar()[1]  # Get the ISO week number
             week_str = f"CW{week_number:02d}"  # Format the week number
             tableWidget.setHorizontalHeaderItem(i, QTableWidgetItem(week_str))
+        tableWidget.setHorizontalHeaderItem(0, QTableWidgetItem("Employee"))
         for i in range(1, num_days + 1):
             date = datetime.date(self.current_year, self.current_month, i)
             day_number = str(i)
@@ -555,11 +698,25 @@ class MonthlyTableWindow(QDialog):
                     column_index = day
                     # Set the absence days in the table cell
                     for i in range(int(absence_days)):
+
                         if column_index + i <= num_days:  # Ensure it doesn't exceed the maximum day
-                            color, _ = self.get_absence_type_color(absence_type)
-                            cell_item = QTableWidgetItem(self.get_absence_letter(absence_type))
-                            cell_item.setBackground(color)
-                            tableWidget.setItem(row_index, column_index+i, cell_item)
+                            actual_day=datetime.date(self.current_year,self.current_month,column_index+i)
+                            pandas_day=pd.to_datetime(actual_day)
+                            if pandas_day.dayofweek<5:
+                                color, _ = self.get_absence_type_color(absence_type)
+                                cell_item = QTableWidgetItem(self.get_absence_letter(absence_type))
+                                cell_item.setBackground(color)
+                                tableWidget.setItem(row_index, column_index+i, cell_item)
+                            else:
+                                cell_item = QTableWidgetItem('W')
+                                light_grey = QColor(211,211,211)  # Adjust the RGB values for the desired shade of gray
+                                cell_item.setBackground(light_grey)
+                                tableWidget.setItem(row_index, column_index+i, cell_item)
+                            if absence_days == 1.5:
+                                cell_item = QTableWidgetItem('H1')
+                                light_green = QColor(144, 238, 144)
+                                cell_item.setBackground(light_green)
+                                tableWidget.setItem(row_index, column_index+i, cell_item)
         ro_holidays = self.get_national_holidays(self.current_year,self.current_month)
 
         light_grey = QColor(211,211,211)  # Adjust the RGB values for the desired shade of gray
@@ -579,6 +736,7 @@ class MonthlyTableWindow(QDialog):
             item.setBackground(light_blue)
         tableWidget.resizeColumnsToContents()
         tableWidget.repaint()
+        
         return tableWidget
     
 class ApplicationWindow(QMainWindow):
@@ -589,7 +747,8 @@ class ApplicationWindow(QMainWindow):
             'project': None,
             'employee': None,
             'leave': None,
-            'period': None
+            'manager': None,
+            'period': (datetime.datetime(2024,1,1),datetime.datetime(2024,12,31))
         }
         self.title = 'Vacation Rate App'
         self.currentDialog = None  
@@ -626,6 +785,9 @@ class ApplicationWindow(QMainWindow):
         self.periodButton.clicked.connect(self.showPeriodDialog)
         self.departmentButton = QPushButton('Department')
         self.departmentButton.clicked.connect(lambda: self.showSelectionDialog(unique_departments, 'Select Department'))
+        
+        self.managerButton = QPushButton('Manager')
+        self.managerButton.clicked.connect(lambda: self.showSelectionDialog(unique_managers, 'Select Manager'))
         self.projectButton = QPushButton('Project')
         self.projectButton.clicked.connect(lambda: self.showSelectionDialog(unique_project, 'Select Project'))
         self.employeeButton = QPushButton('Employee')
@@ -635,7 +797,7 @@ class ApplicationWindow(QMainWindow):
 
         # Add buttons to the layout
         buttons = [
-            self.openMonthlyTableButton, self.periodButton, self.departmentButton,
+            self.openMonthlyTableButton,self.managerButton, self.periodButton, self.departmentButton,
             self.projectButton, self.employeeButton, self.typeOfLeaveButton
         ]
         for button in buttons:
@@ -675,7 +837,10 @@ class ApplicationWindow(QMainWindow):
         centralWidget = QWidget()
         centralWidget.setLayout(mainLayout)
         self.setCentralWidget(centralWidget)
-        self.createHistogram()
+        filtered_df = self.filterData()
+        bin_size = self.determine_bin_size()
+        aggregated_data = self.aggregate_data(filtered_df, bin_size)
+        self.createHistogram(filtered_df,bin_size,aggregated_data)
         self.createDoughnutChart()
         self.createRemainingLeavesChart()
         self.show()
@@ -715,7 +880,10 @@ class ApplicationWindow(QMainWindow):
         self.selections['period'] = (start_date, end_date)
         print(f"Custom period received in main window: {start_date} to {end_date}")
         print("Current selections:", self.selections)
-        self.createHistogram() 
+        filtered_df = self.filterData()
+        bin_size = self.determine_bin_size()
+        aggregated_data = self.aggregate_data(filtered_df, bin_size)
+        self.createHistogram(filtered_df,bin_size,aggregated_data)
         self.createDoughnutChart() 
 
 
@@ -748,7 +916,10 @@ class ApplicationWindow(QMainWindow):
                 self.selections['period'] = None
 
         # After setting the period, update the histogram
-        self.createHistogram()
+        filtered_df = self.filterData()
+        bin_size = self.determine_bin_size()
+        aggregated_data = self.aggregate_data(filtered_df, bin_size)
+        self.createHistogram(filtered_df,bin_size,aggregated_data)
         self.createDoughnutChart()
         self.createRemainingLeavesChart()
 
@@ -761,14 +932,18 @@ class ApplicationWindow(QMainWindow):
             'Select Department': 'department',
             'Select Project': 'project',
             'Select Employee': 'employee',
-            'Select Type of Leave': 'leave'
+            'Select Type of Leave': 'leave',
+            'Select Manager' : 'manager'
         }
         category_key = category_key_map.get(category)
         if category_key:
             self.selections[category_key] = selections
             print(f"{category_key} selected: {selections}")
         print("Current selections:", self.selections)
-        self.createHistogram()
+        filtered_df = self.filterData()
+        bin_size = self.determine_bin_size()
+        aggregated_data = self.aggregate_data(filtered_df, bin_size)
+        self.createHistogram(filtered_df,bin_size,aggregated_data)
         self.createDoughnutChart()
         self.createRemainingLeavesChart()
 
@@ -828,6 +1003,9 @@ class ApplicationWindow(QMainWindow):
 
         filtered_df['From'] = pd.to_datetime(filtered_df['From'])
         filtered_df['To'] = pd.to_datetime(filtered_df['To'])
+        filtered_df_half=filtered_df[filtered_df['Att./abs. days']==0.5]
+        date_sequences_half = [pd.date_range(row['From'], row['To']).tolist() for index, row in filtered_df_half.iterrows()]
+        all_dates_half = [date for sublist in date_sequences_half for date in sublist]
 
         if self.selections.get('project') is None:
             filtered_df = filtered_df.drop_duplicates(subset=['Employee ID', 'From', 'To', 'Absence Type'])
@@ -873,7 +1051,6 @@ class ApplicationWindow(QMainWindow):
 
         # Combine the aggregated dataframes
         aggregated_df = aggregated_all_df.merge(aggregated_annual_leave_df[['Date', 'CumulativePercentage']], on='Date', how='left').fillna(method='ffill')
-
         return aggregated_df
 
 
@@ -942,6 +1119,9 @@ class ApplicationWindow(QMainWindow):
         bin_size = self.determine_bin_size()
         aggregated_data = self.aggregate_data(bin_size)
 
+        if filtered_df.empty or aggregated_data.empty:
+            print("No data available for plotting.")
+            return
         # Clear the previous figure
         self.figure.clear()
         ax = self.figure.add_subplot(111)
@@ -976,49 +1156,47 @@ class ApplicationWindow(QMainWindow):
             # Plot the histogram with the specified color and add a label for the blue bars
             bars = ax.bar(aggregated_data['Date'], aggregated_data['AbsenceDays'], width=bar_width, color=(173/255, 216/255, 230/255), alpha=0.7, label='Absence Days Taken')
 
-            # Plotting the cumulative percentage and adding a label for the red line
-            ax2.plot(aggregated_data['Date'], aggregated_data['CumulativePercentage'], color='red', marker='o', linestyle='-', label='Cumulative Days Taken (%)')
-            ax2.set_ylabel('Cumulative Days Taken (%)', color='red')
-            ax2.tick_params(axis='y', colors='red')
-            
-            # Adjust x-axis formatting based on bin size
-            if bin_size == 'day':
-                ax.xaxis.set_major_locator(mdates.DayLocator())
-                ax.xaxis.set_major_formatter(mdates.DateFormatter('%d-%m-%Y'))
-            elif bin_size == 'week':
-                ax.xaxis.set_major_locator(mdates.WeekdayLocator())
-                ax.xaxis.set_major_formatter(mdates.DateFormatter('%U - %Y'))
-            elif bin_size == 'month':
-                ax.xaxis.set_major_locator(mdates.MonthLocator())
-                ax.xaxis.set_major_formatter(mdates.DateFormatter('%B %Y'))
-            ax.figure.autofmt_xdate()  # Auto-format date labels
+        # Plot the histogram with the specified color and add a label for the blue bars
+        bars = ax.bar(aggregated_data['Date'], aggregated_data['AbsenceDays'], width=bar_width, color=(173/255, 216/255, 230/255), alpha=0.7, label='Absence Days Taken')
 
-            # Annotate each bin with its value
-            for bar in bars:
-                height = bar.get_height()
-                ax.annotate(f'{int(height)}',
-                            xy=(bar.get_x() + bar.get_width() / 2, height),
-                            xytext=(0, 3),  # 3 points vertical offset
-                            textcoords="offset points",
-                            ha='center', va='bottom')
+        # Plotting the cumulative percentage and adding a label for the red line
+        ax2.plot(aggregated_data['Date'], aggregated_data['CumulativePercentage'], color='red', marker='o', linestyle='-', label='Cumulative Days Taken (%)')
+        ax2.set_ylabel('Cumulative Days Taken (%)', color='red')
+        ax2.tick_params(axis='y', colors='red')
 
-            # Add a grid for better readability
-            ax.grid(True, which='both', linestyle='--', linewidth=0.5, color='grey', alpha=0.5)
+        # Adjust x-axis formatting based on bin size
+        if bin_size == 'day':
+            ax.xaxis.set_major_locator(mdates.DayLocator())
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%d-%m-%Y'))
+        elif bin_size == 'week':
+            ax.xaxis.set_major_locator(mdates.WeekdayLocator())
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%U - %Y'))
+        elif bin_size == 'month':
+            ax.xaxis.set_major_locator(mdates.MonthLocator())
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%B %Y'))
+        ax.figure.autofmt_xdate()  # Auto-format date labels
 
-            # Set titles and labels
-            ax.set_title('Absence Counts')
-            ax.set_xlabel('Period')
-            ax.set_ylabel('Total Absence Days')
+        # Annotate each bin with its value
+        for bar in bars:
+            height = bar.get_height()
+            ax.annotate(f'{int(height)}',
+                        xy=(bar.get_x() + bar.get_width() / 2, height),
+                        xytext=(0, 3),  # 3 points vertical offset
+                        textcoords="offset points",
+                        ha='center', va='bottom')
 
-            # Combining legends from both axes
-            handles, labels = ax.get_legend_handles_labels()
-            handles2, labels2 = ax2.get_legend_handles_labels()
-            ax2.legend(handles + handles2, labels + labels2, loc='upper left')
+        # Add a grid for better readability
+        ax.grid(True, which='both', linestyle='--', linewidth=0.5, color='grey', alpha=0.5)
 
-        else:
-            # Display message if no data
-            ax.text(0.5, 0.5, 'No data to display for the selected filters', horizontalalignment='center', verticalalignment='center', transform=ax.transAxes)
+        # Set titles and labels
+        ax.set_title('Absence Counts')
+        ax.set_xlabel('Period')
+        ax.set_ylabel('Total Absence Days')
 
+        # Combining legends from both axes
+        handles, labels = ax.get_legend_handles_labels()
+        handles2, labels2 = ax2.get_legend_handles_labels()
+        ax2.legend(handles + handles2, labels + labels2, loc='upper left') 
         self.figure.subplots_adjust(left=0.07, right=0.95, top=0.95, bottom=0.15)
         self.canvas.draw()
 
