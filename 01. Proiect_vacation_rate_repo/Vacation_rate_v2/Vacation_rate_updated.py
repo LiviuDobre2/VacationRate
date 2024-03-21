@@ -1044,16 +1044,23 @@ class ApplicationWindow(QMainWindow):
                 annual_leave_absences.append({'Date': date, 'AbsenceDays': 1})
 
         annual_leave_absences_df = pd.DataFrame(annual_leave_absences)
-        aggregated_annual_leave_df = self.aggregate_absences(annual_leave_absences_df, bin_size)
-        aggregated_annual_leave_df['CumulativeAbsenceDays'] = aggregated_annual_leave_df['AbsenceDays'].cumsum()
 
-        unique_entitlements = filtered_df.drop_duplicates(subset=['Employee Name'])
-        total_entitlement = unique_entitlements['Sum of Entitlement'].sum()
+        if self.selections['leave'] is None or 'Annual leave' in self.selections['leave']:
+            aggregated_annual_leave_df = self.aggregate_absences(annual_leave_absences_df, bin_size)
+            aggregated_annual_leave_df['CumulativeAbsenceDays'] = aggregated_annual_leave_df['AbsenceDays'].cumsum()
 
-        aggregated_annual_leave_df['CumulativePercentage'] = (aggregated_annual_leave_df['CumulativeAbsenceDays'] / total_entitlement) * 100
+            unique_entitlements = filtered_df.drop_duplicates(subset=['Employee Name'])
+            total_entitlement = unique_entitlements['Sum of Entitlement'].sum()
 
-        # Combine the aggregated dataframes
-        aggregated_df = aggregated_all_df.merge(aggregated_annual_leave_df[['Date', 'CumulativePercentage']], on='Date', how='left').fillna(method='ffill')
+            aggregated_annual_leave_df['CumulativePercentage'] = (aggregated_annual_leave_df['CumulativeAbsenceDays'] / total_entitlement) * 100
+
+            # Combine the aggregated dataframes
+            aggregated_df = aggregated_all_df.merge(aggregated_annual_leave_df[['Date', 'CumulativePercentage']], on='Date', how='left').fillna(method='ffill')
+        else:
+            # If "Annual leave" is not among the selected leave types, skip the cumulative percentage calculation
+            aggregated_df = aggregated_all_df.copy()
+            aggregated_df['CumulativePercentage'] = None
+
 
         return aggregated_df
 
