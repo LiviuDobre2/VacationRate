@@ -25,7 +25,7 @@ from openpyxl.styles import PatternFill, Font, Alignment,Border,Side
 
 #Ensure that your script's directory path handling is robust for different environments
 script_directory = os.path.dirname(os.path.abspath(__file__))
-excel_file_name = 'VacationRate.xlsx'
+excel_file_name = 'VacationRatex2.xlsx'
 excel_file_path = os.path.join(script_directory, excel_file_name)
 # Load the dataset and extract unique values for filtering options
 
@@ -69,6 +69,7 @@ final_df.to_excel(excel_final_path, index=False, sheet_name='Absences')
 df = pd.read_excel(excel_final_path)
 df['From'] = pd.to_datetime(df['From'])
 df['To'] = pd.to_datetime(df['To'])
+unique_managers = df['Manager Name'].unique().tolist()
 unique_departments = df["Departament"].unique().tolist()
 unique_project = df["Project Name"].unique().tolist()
 unique_employee = df["Employee Name"].unique().tolist()
@@ -1262,6 +1263,7 @@ class ApplicationWindow(QMainWindow):
                         'department': 'Departament',
                         'project': 'Project Name',
                         'employee': 'Employee Name',
+                        'manager':'Manager Name',
                     }
                     if category in column_map:
                         filtered_column = column_map[category]
@@ -1283,6 +1285,7 @@ class ApplicationWindow(QMainWindow):
                         'project': 'Project Name',
                         'employee': 'Employee Name',
                         'leave': 'Absence Type',
+                        'manager': 'Manager Name',
                     }
                     if category in column_map:
                         filtered_column = column_map[category]
