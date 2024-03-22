@@ -355,6 +355,21 @@ class MonthlyTableWindow(QDialog):
         buttonLayout.addWidget(self.prevButton)
         buttonLayout.addWidget(self.currentMonthLabel)
         buttonLayout.addWidget(self.nextButton)
+
+        layout.addLayout(buttonLayout)
+        layout.addWidget(self.tableWidget)
+        
+        # add a legend to the table
+        self.tableLegendText = "S = Sick Leave \tM = Maternity Leave \nH = Annual Leave \tW = Wedding Leave \nU = Unpaid Leave \tF = Floating Day \nX = Unkown Type"
+        self.tableLegend = QLabel()
+        fontTableLegend = QFont()
+        font.setFamily("Arial")
+        font.setPointSize(8)
+        self.tableLegend.setFont(fontTableLegend)
+        self.tableLegend.setText(self.tableLegendText)
+
+        layout.addWidget(self.tableLegend)
+
         layout.addLayout(buttonLayout)  # Add button layout under the table
         layout.addWidget(self.tableWidget)  # Add table widget
         layout.setAlignment(Qt.AlignCenter)
