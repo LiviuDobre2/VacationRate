@@ -163,8 +163,10 @@ class PeriodDialog(QDialog):
         # Date pickers for custom period
         formLayout = QFormLayout()
         self.startDateEdit = QDateEdit(self)
+        self.startDateEdit.setDisplayFormat("dd/MM/yyyy")
         self.startDateEdit.setDate(QDate.currentDate())
         self.endDateEdit = QDateEdit(self)
+        self.endDateEdit.setDisplayFormat("dd/MM/yyyy")
         self.endDateEdit.setDate(QDate.currentDate())
         formLayout.addRow('Start Date:', self.startDateEdit)
         formLayout.addRow('End Date:', self.endDateEdit)
