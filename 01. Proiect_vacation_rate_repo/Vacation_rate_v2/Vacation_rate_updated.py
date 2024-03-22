@@ -309,6 +309,17 @@ class MonthlyTableWindow(QDialog):
 
         layout.addLayout(buttonLayout)
         layout.addWidget(self.tableWidget)
+        
+        # add a legend to the table
+        self.tableLegendText = "S = Sick Leave \tM = Maternity Leave \nH = Annual Leave \tW = Wedding Leave \nU = Unpaid Leave \tF = Floating Day \nX = Unkown Type"
+        self.tableLegend = QLabel()
+        fontTableLegend = QFont()
+        font.setFamily("Arial")
+        font.setPointSize(8)
+        self.tableLegend.setFont(fontTableLegend)
+        self.tableLegend.setText(self.tableLegendText)
+
+        layout.addWidget(self.tableLegend)
         # Connect button clicks to slots
         self.prevButton.clicked.connect(self.showPreviousMonth)
         self.nextButton.clicked.connect(self.showNextMonth)
