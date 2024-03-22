@@ -1053,15 +1053,15 @@ class ApplicationWindow(QMainWindow):
 
         filtered_df['From'] = pd.to_datetime(filtered_df['From'])
         filtered_df['To'] = pd.to_datetime(filtered_df['To'])
-        filtered_df=filtered_df[filtered_df['Request Status']!='Rejected']
+        filtered_df_valid=filtered_df[filtered_df['Request Status']!='Rejected']
         if self.selections.get('project') is None:
-            filtered_df = filtered_df.drop_duplicates(subset=['Employee ID', 'From', 'To', 'Absence Type'])
+            filtered_df_valid = filtered_df_valid.drop_duplicates(subset=['Employee ID', 'From', 'To', 'Absence Type'])
 
         # Initialize an empty list to store all absences
         all_absences = []
 
         # Loop through the filtered DataFrame
-        for _, row in filtered_df.iterrows():
+        for _, row in filtered_df_valid.iterrows():
             business_days = pd.date_range(row['From'], row['To']).to_series().map(lambda x: x if x.weekday() < 5 else None).dropna()
             
             # Calculate the abs_days_per_date for distributing 'Att./abs. days' evenly across business days
@@ -1081,8 +1081,8 @@ class ApplicationWindow(QMainWindow):
    
         filtered_annual_leave_df = self.filterData(without_period=True)
         annual_leave_absences = []
-        filtered_annual_leave_df=filtered_annual_leave_df[filtered_annual_leave_df['Request Status']!='Rejected']
-        for _, row in filtered_annual_leave_df.iterrows():
+        filtered_annual_leave_df_valid=filtered_annual_leave_df[filtered_annual_leave_df['Request Status']!='Rejected']
+        for _, row in filtered_annual_leave_df_valid.iterrows():
             business_days = pd.date_range(row['From'], row['To']).to_series().map(lambda x: x if x.weekday() < 5 else None).dropna()
             for date in business_days:
                 annual_leave_absences.append({'Date': date, 'AbsenceDays': 1})
