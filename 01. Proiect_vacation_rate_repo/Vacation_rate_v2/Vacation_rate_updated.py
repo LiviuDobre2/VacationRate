@@ -21,7 +21,6 @@ from PyQt5.QtGui import QColor
 import openpyxl
 from openpyxl.styles import PatternFill, Font, Alignment,Border,Side
 
-#Ensure that your script's directory path handling is robust for different environments
 script_directory = os.path.dirname(os.path.abspath(__file__))
 excel_file_name = 'VacationRate.xlsx'
 excel_file_path = os.path.join(script_directory, excel_file_name)
@@ -31,14 +30,59 @@ excel_file_path_new=os.path.join(script_directory, excel_file_name)
 # Load sheets into DataFrames
 df_absences = pd.read_excel(excel_file_path_new, sheet_name='Absences')
 df_projects = pd.read_excel(excel_file_path_new, sheet_name='Projects')
-merged_df = pd.merge(df_absences, df_projects.drop(columns=['Engineer Name']), on='Employee ID', how='inner')
+df_projects.rename(columns={'Engineer Name': 'Employee Name'}, inplace=True)
+# Sort the DataFrame by Employee Name and Start Date
+df_projects.sort_values(by=['Employee Name', 'Mission start date'], inplace=True)
 
+# Initialize a list to store rows with intercontract periods
+intercontract_rows = []
+
+# Iterate over unique employees
+for employee, employee_data in df_projects.groupby('Employee Name'):
+    # Iterate over projects for each employee
+    for i in range(len(employee_data) - 1):
+        current_end_date = employee_data.iloc[i]['Mission end date']
+        next_start_date = employee_data.iloc[i + 1]['Mission start date']
+        # Check for gap between projects
+        if current_end_date < next_start_date:
+            # Insert intercontract period
+            intercontract_rows.append({
+                'Employee ID': employee_data.iloc[i]['Employee ID'],
+                'Employee Name': employee,
+                'Mission start date': current_end_date,
+                'Mission end date': next_start_date,
+                'Project Name': 'intercontract'
+            })
+
+# Create DataFrame for intercontract periods
+intercontract_df = pd.DataFrame(intercontract_rows)
+
+# Concatenate original DataFrame with intercontract DataFrame
+df_projects = pd.concat([df_projects, intercontract_df]).sort_index().reset_index(drop=True)
+employees_projects_only = df_projects[~df_projects['Employee ID'].isin(df_absences['Employee ID'])]
+
+missing_employees_df = pd.DataFrame({
+    'Employee ID': employees_projects_only['Employee ID'],
+    'Employee Name': employees_projects_only['Employee Name'],
+    'Project Name': employees_projects_only['Project Name'],  # Include project information
+    'End Customer': employees_projects_only['End Customer'],  # Include End Customer information
+    'Att./abs. days': 0,
+    'Calendar days': 0,
+    'Sum of Entitlement': 25,
+    'Absence Type': 'Annual leave',
+    'From': employees_projects_only['Mission start date'],
+    'To': employees_projects_only['Mission end date']
+})
+
+# Save the modified DataFrame to Excel
+#print(missing_employees_df)
+df_projects.rename(columns={'Employee Name': 'Engineer Name'}, inplace=True)
+merged_df = pd.merge(df_absences, df_projects.drop(columns=['Engineer Name']), on='Employee ID', how='inner')
+merged_df = pd.concat([merged_df, missing_employees_df], ignore_index=True)
 
 # Filter merged DataFrame based on condition
 filtered_df = merged_df[(merged_df['From'] >= merged_df['Mission start date']) & (merged_df['From'] <= merged_df['Mission end date'])]
 
-# Add 'Project Name' column to the filtered DataFrame
-filtered_df['Project Name'] = filtered_df['Project Name']
 # Find employees present in Absences but not in Projects
 employees_absences_only = df_absences[~df_absences['Employee ID'].isin(df_projects['Employee ID'])]
 
@@ -56,14 +100,14 @@ employees_wrong_dates = employees_wrong_dates[~((employees_wrong_dates['From'] >
 employees_wrong_dates['End Customer'] = 'Intercontract'
 employees_wrong_dates['Project Name'] = 'Intercontract'
 
-# Concatenate filtered DataFrame, DataFrame for employees with 'No contract', and DataFrame for employees with 'No project assigned'
-final_df = pd.concat([filtered_df, employees_absences_only, employees_wrong_dates], ignore_index=True)
+final_df = pd.concat([filtered_df, employees_absences_only, employees_wrong_dates, missing_employees_df], ignore_index=True)
 final_df.drop(columns=['Engineer Name'], inplace=True)
 final_df.to_excel('vacationRate_modified.xlsx', index=False, sheet_name='Absences')
 
 excel_final_name ='vacationRate_modified.xlsx'
 excel_final_path = os.path.join(script_directory, excel_final_name)
 df = pd.read_excel(excel_final_path)
+
 unique_managers=df["Manager Name"].unique().tolist()
 unique_departments = df["Departament"].unique().tolist()
 unique_project = df["Project Name"].unique().tolist()
