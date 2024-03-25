@@ -22,6 +22,7 @@ from scipy.stats import norm
 from PyQt5.QtGui import QColor
 import openpyxl
 from openpyxl.styles import PatternFill, Font, Alignment,Border,Side
+from PyQt5.QtWidgets import QGroupBox
 
 #Ensure that your script's directory path handling is robust for different environments
 script_directory = os.path.dirname(os.path.abspath(__file__))
@@ -80,6 +81,8 @@ stylesheet = """
         background-color: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, stop:0 rgba(173, 216, 230, 255), stop:1 rgba(255, 255, 255, 255));
     }
     QPushButton {
+        font-size: 12px; /* Adjust size as needed */
+        font-weight: bold; /* Make text bold */
         background-color: rgb(52, 154, 255);  /* Changed button color here */
         border-radius: 5px;
         color: white;
@@ -96,6 +99,27 @@ stylesheet = """
     QLabel, QRadioButton {
         color: #003366;
     }
+    QGroupBox {
+        border: 2px solid #000080; /* Dark blue border */
+        border-radius: 5px;
+        margin-top: 2ex; /* Leave space at the top for the title */
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                    stop:0 rgba(240, 248, 255, 0.7),
+                                    stop:1 rgba(200, 220, 255, 0.7)); /* Gradient background */
+    }
+    QGroupBox::title {
+        subcontrol-origin: margin;
+        subcontrol-position: top center;
+        padding: 0 3px;
+        background-color: rgba(173, 216, 230, 0.8);
+        color: #003366;
+        font-size: 18px;
+        font-weight: bold;
+    }
+    QGroupBox:hover {
+        border: 2px solid #4169E1; /* Brighter blue border on hover */
+    }
+
 """
 
 # Custom Dialog for Period Selection
@@ -144,7 +168,7 @@ class PeriodDialog(QDialog):
         self.radioGroup.buttonClicked.connect(self.onRadioButtonClicked)
 
         # Add radio button for "All Available Periods"
-        self.radioAllPeriods = QRadioButton("All Available Periods")
+        self.radioAllPeriods = QRadioButton("All Available Period")
         self.radioGroup.addButton(self.radioAllPeriods)
         formLayout.addRow(self.radioAllPeriods)
 
@@ -779,13 +803,24 @@ class ApplicationWindow(QMainWindow):
         # Left panel for filter buttons
         leftPanel = QVBoxLayout()
 
-        # Setup filter buttons
-        self.openMonthlyTableButton = QPushButton('Monthly Data')
-        self.openMonthlyTableButton.clicked.connect(self.openMonthlyTable)
-        self.modifyButtonAppearance(self.openMonthlyTableButton)
+        filtersGroup = QGroupBox("Filters")
+        viewGroup = QGroupBox("View")
+        employeesGroup = QGroupBox("Employees")
 
-        self.periodButton = QPushButton('Period')
-        self.periodButton.clicked.connect(self.showPeriodDialog)
+        # Create layouts for each GroupBox
+        filtersLayout = QVBoxLayout()
+        viewLayout = QVBoxLayout()
+        employeesLayout = QVBoxLayout()
+
+
+
+        # Setup filter buttons
+        self.monthlyCalendarViewButton  = QPushButton('Monthly Calendar View')
+        self.monthlyCalendarViewButton.clicked.connect(self.openMonthlyTable)
+        #self.modifyButtonAppearance(self.monthlyCalendarViewButton )
+
+        self.selectSpecificPeriodButton = QPushButton('Select Specific Period')
+        self.selectSpecificPeriodButton.clicked.connect(self.showPeriodDialog)
         self.departmentButton = QPushButton('Department')
         self.departmentButton.clicked.connect(lambda: self.showSelectionDialog(unique_departments, 'Select Department'))
         
@@ -798,14 +833,57 @@ class ApplicationWindow(QMainWindow):
         self.typeOfLeaveButton = QPushButton('Type of Leave')
         self.typeOfLeaveButton.clicked.connect(lambda: self.showSelectionDialog(unique_leave, 'Select Type of Leave'))
 
-        # Add buttons to the layout
-        buttons = [
-            self.openMonthlyTableButton,self.managerButton, self.periodButton, self.departmentButton,
-            self.projectButton, self.employeeButton, self.typeOfLeaveButton
-        ]
-        for button in buttons:
-            self.modifyButtonAppearance(button)
-            leftPanel.addWidget(button)
+        # # Add buttons to the layout
+        # buttons = [
+        #     self.openMonthlyTableButton,self.managerButton, self.periodButton, self.departmentButton,
+        #     self.projectButton, self.employeeButton, self.typeOfLeaveButton
+        # ]
+        # for button in buttons:
+        #     self.modifyButtonAppearance(button)
+        #     leftPanel.addWidget(button)
+        # Add the buttons to the corresponding layout
+        filtersLayout.addWidget(self.departmentButton)
+        filtersLayout.addWidget(self.projectButton)
+        filtersLayout.addWidget(self.managerButton)
+        filtersLayout.addWidget(self.employeeButton)
+        filtersLayout.addWidget(self.typeOfLeaveButton)
+
+        viewLayout.addWidget(self.monthlyCalendarViewButton)
+        viewLayout.addWidget(self.selectSpecificPeriodButton)
+
+        # Quarterly Buttons
+        quarterlyLayout = QHBoxLayout()
+        quarterlyLabel = QLabel("Quarterly")
+        quarterlyLayout.addWidget(quarterlyLabel)
+        for q in range(1, 5):
+            quarterButton = QPushButton(f"Q{q}")
+            quarterButton.setFixedWidth(50)  # Adjust width as needed
+            # Connect to a method to handle the quarter selection
+            quarterButton.clicked.connect(lambda checked, b=quarterButton: self.handlePredefinedPeriod(b.text()))
+            quarterlyLayout.addWidget(quarterButton)
+        viewLayout.addLayout(quarterlyLayout)
+
+        # Semester Buttons
+        semesterLayout = QHBoxLayout()
+        semesterLabel = QLabel("Semester")
+        semesterLayout.addWidget(semesterLabel)
+        for s in range(1, 3):
+            semesterButton = QPushButton(f"S{s}")
+            semesterButton.setFixedWidth(50)  # Adjust width as needed
+            # Connect to a method to handle the semester selection
+            semesterButton.clicked.connect(lambda checked, b=semesterButton: self.handlePredefinedPeriod(b.text()))
+            semesterLayout.addWidget(semesterButton)
+        semesterLayout.addStretch(1)
+        viewLayout.addLayout(semesterLayout)
+
+        # Annual Button
+        self.annualButton = QPushButton('Annual')
+
+        viewLayout.addWidget(self.annualButton)
+        self.annualButton.clicked.connect(lambda checked: self.handlePredefinedPeriod('All Available Periods'))
+
+        viewGroup.setLayout(viewLayout)
+
 
         # Right panel for the graph and metrics, now including a tabbed interface
         rightPanel = QVBoxLayout()
@@ -841,6 +919,16 @@ class ApplicationWindow(QMainWindow):
         # No need to setup the doughnut chart here; it will be initialized in createDoughnutChart()
 
         rightPanel.addWidget(self.tabWidget)
+
+        filtersGroup.setLayout(filtersLayout)
+        viewGroup.setLayout(viewLayout)
+        employeesGroup.setLayout(employeesLayout)
+
+        # Adjust the main layout to use the new group boxes
+        leftPanel = QVBoxLayout()
+        leftPanel.addWidget(filtersGroup)
+        leftPanel.addWidget(viewGroup)
+        leftPanel.addWidget(employeesGroup)
 
         # Combine left and right panels into the main layout
         mainLayout.addLayout(leftPanel, 1)
@@ -895,40 +983,45 @@ class ApplicationWindow(QMainWindow):
 
 
     def handlePredefinedPeriod(self, period):
-        global df  # Ensure 'df' is the DataFrame loaded from your Excel file
+        global df  
+
+        # Calculate the most common year in the data
+        year_counts = df['From'].dt.year.value_counts() + df['To'].dt.year.value_counts()
+        if year_counts.empty:
+            print("The dataset does not contain valid date information.")
+            self.selections['period'] = None
+            return
+        selected_year = year_counts.idxmax()
 
         # Ensure 'From' and 'To' columns are datetime
         df['From'] = pd.to_datetime(df['From'])
         df['To'] = pd.to_datetime(df['To'])
 
         if period == "All Available Periods":
-            # Set period to None to indicate no date filtering should be applied
             self.selections['period'] = None
             print("All available data will be displayed.")
+        elif period in ['Q1', 'Q2', 'Q3', 'Q4']:
+            quarter = int(period[1])
+            start_month = (quarter - 1) * 3 + 1
+            end_month = start_month + 2
+            start_date = pd.Timestamp(selected_year, start_month, 1)
+            end_date = pd.Timestamp(selected_year, end_month, 1) + pd.offsets.MonthEnd()
+            self.selections['period'] = (start_date, end_date)
+            print(f"Period set to: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
+        elif period in ['S1', 'S2']:
+            semester = int(period[1])
+            start_date = pd.Timestamp(selected_year, 1 if semester == 1 else 7, 1)
+            end_date = pd.Timestamp(selected_year, 6 if semester == 1 else 12, 30)
+            self.selections['period'] = (start_date, end_date)
+            print(f"Period set to: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
         else:
-            # Determine the month number for the selected period
             month_num = [QDate.longMonthName(i) for i in range(1, 13)].index(period) + 1
-
-            # Count entries for each year, considering both 'From' and 'To' columns to account for all relevant data
-            year_counts = df['From'].dt.year.value_counts() + df['To'].dt.year.value_counts()
-
-            if not year_counts.empty:
-                # Select the year with the most entries
-                selected_year = year_counts.idxmax()
-
-                # Define the period for the selected month of that year
-                start_date = pd.Timestamp(year=selected_year, month=month_num, day=1)
-                end_date = start_date + pd.offsets.MonthEnd()
-                self.selections['period'] = (start_date, end_date)
-                print(f"Period set to: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
+            start_date = pd.Timestamp(selected_year, month_num, 1)
+            end_date = start_date + pd.offsets.MonthEnd()
+            self.selections['period'] = (start_date, end_date)
+            print(f"Period set to: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
 
         
-            else:
-                # Handle case where the dataset is empty or does not have valid date information
-                print("The dataset does not contain valid date information.")
-                self.selections['period'] = None
-
-        # Even if the specific month may have no data, we proceed to update the graphs to reflect this selection
         self.createHistogram()
         self.createDoughnutChart()
         self.createRemainingLeavesChart()
