@@ -22,7 +22,7 @@ import openpyxl
 from openpyxl.styles import PatternFill, Font, Alignment,Border,Side
 
 script_directory = os.path.dirname(os.path.abspath(__file__))
-excel_file_name = 'VacationRate.xlsx'
+excel_file_name = 'VacationRatex2.xlsx'
 excel_file_path = os.path.join(script_directory, excel_file_name)
 # Load the dataset and extract unique values for filtering options
 
@@ -159,7 +159,7 @@ if 'Manager Name_x' in final_df.columns and 'Manager Name_y' in final_df.columns
     final_df['Manager Name_x'].fillna(final_df['Manager Name_y'], inplace=True)
     # Drop the redundant 'Manager Name_y' column
     final_df.drop(columns=['Manager Name_y'], inplace=True)
-final_df.rename(columns={'Manager Name_x': 'Manager'}, inplace=True)
+final_df.rename(columns={'Manager Name_x': 'Manager Name'}, inplace=True)
 final_df.rename(columns={'Employee Name_x':'Employee Name'},inplace=True)
 final_df.drop(columns=['Employee Name_y'], inplace=True)
 final_df.to_excel('vacationRate_modified.xlsx', index=False, sheet_name='Absences')
@@ -842,7 +842,7 @@ class ApplicationWindow(QMainWindow):
             'employee': None,
             'leave': None,
             'manager': None,
-            'period': (datetime.datetime(2024,1,1),datetime.datetime(2024,12,31))
+            'period': None
         }
         self.title = 'Vacation Rate App'
         self.currentDialog = None  
@@ -1262,7 +1262,6 @@ class ApplicationWindow(QMainWindow):
         # Start with the original DataFrame
         global df  # Ensure you're using the global dataframe or replace with your dataframe variable
         filtered_df = df.copy()
-
         # Check if a period has been selected
         if self.selections['period']:
             start_date, end_date = self.selections['period']
