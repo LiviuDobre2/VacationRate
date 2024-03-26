@@ -146,7 +146,7 @@ stylesheet = """
     QGroupBox {
         border: 2px solid #000080; /* Dark blue border */
         border-radius: 5px;
-        margin-top: 2ex; /* Leave space at the top for the title */
+        margin-top: 7ex; /* Leave space at the top for the title */
         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                                     stop:0 rgba(240, 248, 255, 0.7),
                                     stop:1 rgba(200, 220, 255, 0.7)); /* Gradient background */
@@ -155,10 +155,15 @@ stylesheet = """
         subcontrol-origin: margin;
         subcontrol-position: top center;
         padding: 0 3px;
-        background-color: rgba(173, 216, 230, 0.8);
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                    stop:0 rgba(240, 248, 255, 0.7),
+                                    stop:1 rgba(200, 220, 255, 0.7)); /* Gradient background */
         color: #003366;
-        font-size: 18px;
-        font-weight: bold;
+        /* Make the title bigger and bold */
+        font-size: 18px; /* Adjust the font size as needed */
+        font-weight: bold; /* Make the font bold */
+        padding-top: 20px;
+        padding: 3px 10px; /* Adjust the padding to make the title box bigger */
     }
     QGroupBox:hover {
         border: 2px solid #4169E1; /* Brighter blue border on hover */
@@ -892,15 +897,7 @@ class ApplicationWindow(QMainWindow):
         self.typeOfLeaveButton = QPushButton('Type of Leave')
         self.typeOfLeaveButton.clicked.connect(lambda: self.showSelectionDialog(unique_leave, 'Select Type of Leave'))
 
-        # # Add buttons to the layout
-        # buttons = [
-        #     self.openMonthlyTableButton,self.managerButton, self.periodButton, self.departmentButton,
-        #     self.projectButton, self.employeeButton, self.typeOfLeaveButton
-        # ]
-        # for button in buttons:
-        #     self.modifyButtonAppearance(button)
-        #     leftPanel.addWidget(button)
-        # Add the buttons to the corresponding layout
+
         filtersLayout.addWidget(self.departmentButton)
         filtersLayout.addWidget(self.projectButton)
         filtersLayout.addWidget(self.managerButton)
