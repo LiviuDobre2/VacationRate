@@ -30,7 +30,11 @@ excel_file_path_new=os.path.join(script_directory, excel_file_name)
 # Load sheets into DataFrames
 df_absences = pd.read_excel(excel_file_path_new, sheet_name='Absences')
 df_projects = pd.read_excel(excel_file_path_new, sheet_name='Projects')
+df_managers = pd.read_excel(excel_file_path_new, sheet_name='Employee Entry')
+df_managers.rename(columns={'Pers.No.': 'Employee ID'}, inplace=True)
+df_managers.rename(columns={'Resource Manager': 'Manager Name'},inplace=True)
 df_projects.rename(columns={'Engineer Name': 'Employee Name'}, inplace=True)
+df_managers.rename(columns={'Personnel Number':'Employee Name'},inplace=True)
 # Sort the DataFrame by Employee Name and Start Date
 df_projects.sort_values(by=['Employee Name', 'Mission start date'], inplace=True)
 
@@ -56,10 +60,57 @@ for employee, employee_data in df_projects.groupby('Employee Name'):
 
 # Create DataFrame for intercontract periods
 intercontract_df = pd.DataFrame(intercontract_rows)
-
 # Concatenate original DataFrame with intercontract DataFrame
 df_projects = pd.concat([df_projects, intercontract_df]).sort_index().reset_index(drop=True)
 employees_projects_only = df_projects[~df_projects['Employee ID'].isin(df_absences['Employee ID'])]
+# Identify intercontract and newcomer employees
+current_date = datetime.datetime.now()
+two_months_ago = current_date - datetime.timedelta(days=60)
+two_months_ago=pd.to_datetime(two_months_ago)
+modified_df_manager=df_managers.copy()
+modified_df_manager['Start Date'] = pd.to_datetime(df_managers['Start Date'])
+
+intercontract_employees = df_managers[modified_df_manager['Start Date'] <= two_months_ago]
+newcomer_employees = df_managers[modified_df_manager['Start Date'] > two_months_ago]
+# Check if intercontract and newcomer employees are not already in the first two sheets
+intercontract_employees = intercontract_employees[~intercontract_employees['Employee ID'].isin(df_projects['Employee ID'])]
+
+newcomer_employees = newcomer_employees[~newcomer_employees['Employee ID'].isin(df_absences['Employee ID']) &
+                                        ~newcomer_employees['Employee ID'].isin(df_projects['Employee ID'])]
+
+intercontract_employees['Project Name'] = 'Intercontract'
+newcomer_employees['Project Name'] = 'Newcomer'
+
+intercontract_employees_df = pd.DataFrame({
+    'Employee ID': intercontract_employees['Employee ID'],
+    'Employee Name': intercontract_employees['Employee Name'],
+    'Project Name': intercontract_employees['Project Name'],  # Include project information
+    'End Customer': intercontract_employees['Project Name'],  # Include End Customer information
+    'Att./abs. days': '0',
+    'Calendar days': '0',
+    'Request Status': 'Rejected',
+    'Sum of Entitlement': '25',
+    'Absence Type': 'Annual leave',
+    'From': df_absences['From'].min(),
+    'To': datetime.datetime.now(),
+    'Request Status': 'Rejected'  # Add 'Request Status' column with value 'Rejected'
+})
+
+newcomer_employees_df = pd.DataFrame({
+    'Employee ID': newcomer_employees['Employee ID'],
+    'Employee Name': newcomer_employees['Employee Name'],
+    'Project Name': newcomer_employees['Project Name'],  # Include project information
+    'End Customer': newcomer_employees['Project Name'],  # Include End Customer information
+    'Att./abs. days': '0',
+    'Calendar days': '0',
+    'Request Status': 'Rejected',
+    'Sum of Entitlement': '25',
+    'Absence Type': 'Annual leave',
+    'From': newcomer_employees['Start Date'],
+    'To': datetime.datetime.now(),
+    'Request Status': 'Rejected'  # Add 'Request Status' column with value 'Rejected'
+})
+# Add intercontract and newcomer employees to merged_df
 
 missing_employees_df = pd.DataFrame({
     'Employee ID': employees_projects_only['Employee ID'],
@@ -71,18 +122,19 @@ missing_employees_df = pd.DataFrame({
     'Sum of Entitlement': 25,
     'Absence Type': 'Annual leave',
     'From': employees_projects_only['Mission start date'],
-    'To': employees_projects_only['Mission end date']
-})
+    'To': employees_projects_only['Mission end date'],
+   })
+
+
+# Merge managers' information with final_df based on Employee ID
 
 # Save the modified DataFrame to Excel
-#print(missing_employees_df)
+
 df_projects.rename(columns={'Employee Name': 'Engineer Name'}, inplace=True)
 merged_df = pd.merge(df_absences, df_projects.drop(columns=['Engineer Name']), on='Employee ID', how='inner')
-merged_df = pd.concat([merged_df, missing_employees_df], ignore_index=True)
-
 # Filter merged DataFrame based on condition
 filtered_df = merged_df[(merged_df['From'] >= merged_df['Mission start date']) & (merged_df['From'] <= merged_df['Mission end date'])]
-
+filtered_df= pd.concat([filtered_df, missing_employees_df,newcomer_employees_df,intercontract_employees_df], ignore_index=True)
 # Find employees present in Absences but not in Projects
 employees_absences_only = df_absences[~df_absences['Employee ID'].isin(df_projects['Employee ID'])]
 
@@ -101,7 +153,15 @@ employees_wrong_dates['End Customer'] = 'Intercontract'
 employees_wrong_dates['Project Name'] = 'Intercontract'
 
 final_df = pd.concat([filtered_df, employees_absences_only, employees_wrong_dates, missing_employees_df], ignore_index=True)
+final_df = pd.merge(final_df, df_managers, on='Employee ID', how='left')
 final_df.drop(columns=['Engineer Name'], inplace=True)
+if 'Manager Name_x' in final_df.columns and 'Manager Name_y' in final_df.columns:
+    final_df['Manager Name_x'].fillna(final_df['Manager Name_y'], inplace=True)
+    # Drop the redundant 'Manager Name_y' column
+    final_df.drop(columns=['Manager Name_y'], inplace=True)
+final_df.rename(columns={'Manager Name_x': 'Manager'}, inplace=True)
+final_df.rename(columns={'Employee Name_x':'Employee Name'},inplace=True)
+final_df.drop(columns=['Employee Name_y'], inplace=True)
 final_df.to_excel('vacationRate_modified.xlsx', index=False, sheet_name='Absences')
 
 excel_final_name ='vacationRate_modified.xlsx'
