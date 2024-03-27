@@ -1285,32 +1285,34 @@ class ApplicationWindow(QMainWindow):
 
             if self.selections['period']:
                 start_date, end_date = self.selections['period']
-                # Create a complete date range for the month
-                complete_date_range = pd.date_range(start=start_date, end=end_date).to_frame(index=False, name='Date')
+                if bin_size == 'day':
+                    # For daily bins, use every day in the period
+                    complete_date_range = pd.date_range(start=start_date, end=end_date).to_frame(index=False, name='Date')
+                elif bin_size == 'week':
+                    # For weekly bins, start each bin on the first day of the week in the period
+                    complete_date_range = pd.date_range(start=start_date, end=end_date, freq='W-MON').to_frame(index=False, name='Date')
+                elif bin_size == 'month':
+                    # For monthly bins, start each bin on the first day of the month in the period
+                    complete_date_range = pd.date_range(start=start_date, end=end_date, freq='MS').to_frame(index=False, name='Date')
 
                 # Ensure aggregated_data 'Date' is datetime for merging
                 aggregated_data['Date'] = pd.to_datetime(aggregated_data['Date'])
 
-                # Merge to ensure all days in the month are included
+                # Merge to ensure all bins are included
                 aggregated_data = pd.merge(complete_date_range, aggregated_data, on='Date', how='left')
 
-                # Fill NaN values with 0 only for specific columns like 'AbsenceDays'
                 aggregated_data['AbsenceDays'] = aggregated_data['AbsenceDays'].fillna(0)
-
-                # Now, apply fill forward for 'CumulativePercentage' to ensure it carries over the last valid value
                 aggregated_data['CumulativePercentage'] = aggregated_data['CumulativePercentage'].fillna(method='ffill')
-
-                # Ensure the 'Date' column is back to datetime.date format if necessary
                 aggregated_data['Date'] = aggregated_data['Date'].dt.date
-
+                
             # Dynamically adjust the bar width based on bin size
             bar_width = {'day': 0.7, 'week': 5, 'month': 20}.get(bin_size, 0.7)
-            
+
             # Plot the histogram with the specified color and add a label for the blue bars
-            bars = ax.bar(aggregated_data['Date'], aggregated_data['AbsenceDays'], width=bar_width, color=(173/255, 216/255, 230/255), alpha=0.7, label='Absence Days Taken')
+            bars = ax.bar(aggregated_data['Date'] , aggregated_data['AbsenceDays'], width=bar_width, color=(173/255, 216/255, 230/255), alpha=0.7, label='Absence Days Taken')
 
             # Plotting the cumulative percentage and adding a label for the red line
-            ax2.plot(aggregated_data['Date'], aggregated_data['CumulativePercentage'], color='red', marker='o', linestyle='-', label='Cumulative Days Taken (%)')
+            ax2.plot(aggregated_data['Date'] , aggregated_data['CumulativePercentage'], color='red', marker='o', linestyle='-', label='Cumulative Days Taken (%)')
             ax2.set_ylabel('Cumulative Days Taken (%)', color='red')
             ax2.tick_params(axis='y', colors='red')
             
@@ -1319,12 +1321,22 @@ class ApplicationWindow(QMainWindow):
                 ax.xaxis.set_major_locator(mdates.DayLocator())
                 ax.xaxis.set_major_formatter(mdates.DateFormatter('%d-%m-%Y'))
             elif bin_size == 'week':
-                ax.xaxis.set_major_locator(mdates.WeekdayLocator())
-                ax.xaxis.set_major_formatter(mdates.DateFormatter('%U - %Y'))
+                ax.xaxis.set_major_locator(mdates.WeekdayLocator(byweekday=mdates.MONDAY))
+                ax.xaxis.set_major_formatter(mdates.DateFormatter('%d%b'))
+                
+                # Generate labels for the start and end of each week
+                week_labels = [
+                    '{0:%d%b}-{1:%d%b}'.format(start, start + pd.Timedelta(days=6))
+                    for start in pd.date_range(start_date, end_date, freq='W-MON')
+                ]
+                
+                # Set custom tick labels
+                ax.set_xticklabels(week_labels)
             elif bin_size == 'month':
+                # For monthly bins, show the abbreviated month name and year
                 ax.xaxis.set_major_locator(mdates.MonthLocator())
-                ax.xaxis.set_major_formatter(mdates.DateFormatter('%B %Y'))
-            ax.figure.autofmt_xdate()  # Auto-format date labels
+                ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %Y'))
+            ax.figure.autofmt_xdate()
 
             # Annotate each bin with its value
             for bar in bars:
