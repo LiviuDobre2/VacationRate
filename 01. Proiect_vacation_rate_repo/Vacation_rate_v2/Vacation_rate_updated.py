@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QPushButton, QLabel,
                              QSizePolicy, QDateEdit, QRadioButton, QButtonGroup,
                              QFormLayout, QDialog, QListWidget, QListWidgetItem, 
-                             QAbstractItemView, QLineEdit,QTabWidget, QTableWidget, QTableWidgetItem, QVBoxLayout)
+                             QAbstractItemView, QLineEdit,QTabWidget, QTableWidget, QTableWidgetItem, QVBoxLayout,QTextEdit)
 from PyQt5.QtCore import Qt, QDate, pyqtSignal
 from PyQt5.QtGui import QFont
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -24,17 +24,18 @@ import openpyxl
 from openpyxl.styles import PatternFill, Font, Alignment,Border,Side
 from PyQt5.QtWidgets import QGroupBox
 
-
 script_directory = os.path.dirname(os.path.abspath(__file__))
 excel_file_name = 'VacationRatex2.xlsx'
 excel_file_path = os.path.join(script_directory, excel_file_name)
-# Load the dataset and extract unique values for filtering options
-
 excel_file_path_new=os.path.join(script_directory, excel_file_name)
 # Load sheets into DataFrames
 df_absences = pd.read_excel(excel_file_path_new, sheet_name='Absences')
 df_projects = pd.read_excel(excel_file_path_new, sheet_name='Projects')
+df_managers = pd.read_excel(excel_file_path_new, sheet_name='Employee Entry')
+df_managers.rename(columns={'Pers.No.': 'Employee ID'}, inplace=True)
+df_managers.rename(columns={'Resource Manager': 'Manager Name'},inplace=True)
 df_projects.rename(columns={'Engineer Name': 'Employee Name'}, inplace=True)
+df_managers.rename(columns={'Personnel Number':'Employee Name'},inplace=True)
 # Sort the DataFrame by Employee Name and Start Date
 df_projects.sort_values(by=['Employee Name', 'Mission start date'], inplace=True)
 
@@ -60,10 +61,57 @@ for employee, employee_data in df_projects.groupby('Employee Name'):
 
 # Create DataFrame for intercontract periods
 intercontract_df = pd.DataFrame(intercontract_rows)
-
 # Concatenate original DataFrame with intercontract DataFrame
 df_projects = pd.concat([df_projects, intercontract_df]).sort_index().reset_index(drop=True)
 employees_projects_only = df_projects[~df_projects['Employee ID'].isin(df_absences['Employee ID'])]
+# Identify intercontract and newcomer employees
+current_date = datetime.datetime.now()
+two_months_ago = current_date - datetime.timedelta(days=60)
+two_months_ago=pd.to_datetime(two_months_ago)
+modified_df_manager=df_managers.copy()
+modified_df_manager['Start Date'] = pd.to_datetime(df_managers['Start Date'])
+
+intercontract_employees = df_managers[modified_df_manager['Start Date'] <= two_months_ago]
+newcomer_employees = df_managers[modified_df_manager['Start Date'] > two_months_ago]
+# Check if intercontract and newcomer employees are not already in the first two sheets
+intercontract_employees = intercontract_employees[~intercontract_employees['Employee ID'].isin(df_projects['Employee ID'])]
+
+newcomer_employees = newcomer_employees[~newcomer_employees['Employee ID'].isin(df_absences['Employee ID']) &
+                                        ~newcomer_employees['Employee ID'].isin(df_projects['Employee ID'])]
+
+intercontract_employees['Project Name'] = 'Intercontract'
+newcomer_employees['Project Name'] = 'Newcomer'
+
+intercontract_employees_df = pd.DataFrame({
+    'Employee ID': intercontract_employees['Employee ID'],
+    'Employee Name': intercontract_employees['Employee Name'],
+    'Project Name': intercontract_employees['Project Name'],  # Include project information
+    'End Customer': intercontract_employees['Project Name'],  # Include End Customer information
+    'Att./abs. days': '0',
+    'Calendar days': '0',
+    'Request Status': 'Rejected',
+    'Sum of Entitlement': '25',
+    'Absence Type': 'Annual leave',
+    'From': df_absences['From'].min(),
+    'To': datetime.datetime.now(),
+    'Request Status': 'Rejected'  # Add 'Request Status' column with value 'Rejected'
+})
+
+newcomer_employees_df = pd.DataFrame({
+    'Employee ID': newcomer_employees['Employee ID'],
+    'Employee Name': newcomer_employees['Employee Name'],
+    'Project Name': newcomer_employees['Project Name'],  # Include project information
+    'End Customer': newcomer_employees['Project Name'],  # Include End Customer information
+    'Att./abs. days': '0',
+    'Calendar days': '0',
+    'Request Status': 'Rejected',
+    'Sum of Entitlement': '25',
+    'Absence Type': 'Annual leave',
+    'From': newcomer_employees['Start Date'],
+    'To': datetime.datetime.now(),
+    'Request Status': 'Rejected'  # Add 'Request Status' column with value 'Rejected'
+})
+# Add intercontract and newcomer employees to merged_df
 
 missing_employees_df = pd.DataFrame({
     'Employee ID': employees_projects_only['Employee ID'],
@@ -72,24 +120,24 @@ missing_employees_df = pd.DataFrame({
     'End Customer': employees_projects_only['End Customer'],  # Include End Customer information
     'Att./abs. days': 0,
     'Calendar days': 0,
-    'Request Status': 'Rejected',
     'Sum of Entitlement': 25,
     'Absence Type': 'Annual leave',
-    'From': employees_projects_only['Mission start date'],
-    'To': employees_projects_only['Mission end date']
-})
+    'From': df_absences['From'].min(),
+    'To': df_absences['To'].max(),
+   })
+
+
+# Merge managers' information with final_df based on Employee ID
 
 # Save the modified DataFrame to Excel
-#print(missing_employees_df)
+
 df_projects.rename(columns={'Employee Name': 'Engineer Name'}, inplace=True)
 merged_df = pd.merge(df_absences, df_projects.drop(columns=['Engineer Name']), on='Employee ID', how='inner')
-merged_df = pd.concat([merged_df, missing_employees_df], ignore_index=True)
-
 # Filter merged DataFrame based on condition
 filtered_df = merged_df[(merged_df['From'] >= merged_df['Mission start date']) & (merged_df['From'] <= merged_df['Mission end date'])]
-
+filtered_df= pd.concat([filtered_df, missing_employees_df,newcomer_employees_df,intercontract_employees_df], ignore_index=True)
 # Find employees present in Absences but not in Projects
-employees_absences_only = df_absences[~df_absences['Employee ID'].isin(df_projects['Employee ID'])]
+employees_absences_only = df_absences[~df_absences['Employee ID'].isin(df_projects['Employee ID'])]     
 
 # Create a DataFrame for these employees with 'No contract' as End Customer and Project Name
 employees_absences_only['End Customer'] = 'No contract'
@@ -106,15 +154,22 @@ employees_wrong_dates['End Customer'] = 'Intercontract'
 employees_wrong_dates['Project Name'] = 'Intercontract'
 
 final_df = pd.concat([filtered_df, employees_absences_only, employees_wrong_dates, missing_employees_df], ignore_index=True)
+final_df = pd.merge(final_df, df_managers, on='Employee ID', how='left')
 final_df.drop(columns=['Engineer Name'], inplace=True)
+if 'Manager Name_x' in final_df.columns and 'Manager Name_y' in final_df.columns:
+    final_df['Manager Name_x'].fillna(final_df['Manager Name_y'], inplace=True)
+    # Drop the redundant 'Manager Name_y' column
+    final_df.drop(columns=['Manager Name_y'], inplace=True)
+final_df.rename(columns={'Manager Name_x': 'Manager Name'}, inplace=True)
+final_df.rename(columns={'Employee Name_x':'Employee Name'},inplace=True)
+final_df.drop(columns=['Employee Name_y'], inplace=True)
 final_df.to_excel('vacationRate_modified.xlsx', index=False, sheet_name='Absences')
 
 excel_final_name ='vacationRate_modified.xlsx'
 excel_final_path = os.path.join(script_directory, excel_final_name)
 df = pd.read_excel(excel_final_path)
-df['From'] = pd.to_datetime(df['From'])
-df['To'] = pd.to_datetime(df['To'])
-unique_managers = df['Manager Name'].unique().tolist()
+
+unique_managers=df["Manager Name"].unique().tolist()
 unique_departments = df["Departament"].unique().tolist()
 unique_project = df["Project Name"].unique().tolist()
 unique_employee = df["Employee Name"].unique().tolist()
@@ -906,7 +961,8 @@ class ApplicationWindow(QMainWindow):
 
         viewLayout.addWidget(self.monthlyCalendarViewButton)
         viewLayout.addWidget(self.selectSpecificPeriodButton)
-
+        self.outputTextEdit = QTextEdit()
+        employeesLayout.addWidget(self.outputTextEdit)
         # Quarterly Buttons
         quarterlyLayout = QHBoxLayout()
         quarterlyLabel = QLabel("Quarterly")
@@ -995,6 +1051,7 @@ class ApplicationWindow(QMainWindow):
         centralWidget.setLayout(mainLayout)
         self.setCentralWidget(centralWidget)
         self.createHistogram()
+        
         self.createDoughnutChart()
         self.createRemainingLeavesChart()
         self.show()
@@ -1147,12 +1204,93 @@ class ApplicationWindow(QMainWindow):
             else:
                 return 'month'
         return 'month'  # Default bin size
+    def total_working_days(self,start_date):
+        current_date = pd.Timestamp.today()
+        total_days = 0
+        # Iterate over each day from start_date to current_date
+        current=pd.to_datetime(start_date)
+        while current <= current_date:
+            # Check if the current day is a weekday (Monday=0, Sunday=6)
+            if current.weekday() < 5:
+                total_days += 1
+            current += datetime.timedelta(days=1)  # Move to the next day
+        return total_days
+    def calculate_duration_excluding_weekends(self,start_date, end_date):
+        weekdays = pd.date_range(start=start_date, end=end_date, freq='B')  # Generate weekdays between start and end dates
+        return len(weekdays)
+    def calculate_metrics(self):
+        filtered_data=self.selections
+        
+        metrics_df=df
+        all_days=self.total_working_days(metrics_df['From'].min())
+        if filtered_data['employee'] is not None:
+            metrics_df=df[df['Employee Name'].isin(filtered_data['employee'])]
+            metrics_df=metrics_df.drop_duplicates(subset=['Employee Name', 'From'])
+        else: 
+            if filtered_data['project'] is not None:
+                metrics_df=df[df['Project Name'].isin(filtered_data['project'])]
 
-    
+            else:
+                if filtered_data['department'] is not None:
+                    metrics_df = df[df['Departament'].isin(filtered_data['department'])]
+                    metrics_df=metrics_df.drop_duplicates(subset=['Employee Name', 'From'])
+                else:
+                    if filtered_data['manager'] is not None:
+                        metrics_df = df[df['Manager Name'].isin(filtered_data['manager'])]
+                        metrics_df=metrics_df.drop_duplicates(subset=['Employee Name', 'From'])
+        if filtered_data['period']:
+            start_date, end_date = self.selections['period']
+            all_days=self.total_working_days(start_date)
+            metrics_df['From'] = pd.to_datetime(metrics_df['From'])
+            metrics_df['To'] = pd.to_datetime(metrics_df['To'])
+            metrics_df = metrics_df[
+                    ((metrics_df['To'] >= start_date))]
+            metrics_df = metrics_df[
+                    ((metrics_df['From'] <=end_date))]
+        metrics_df['From'] = pd.to_datetime(metrics_df['From'])
+        metrics_df['To'] = pd.to_datetime(metrics_df['To'])
+        unique_employees=metrics_df["Employee Name"].unique()
+        total_absence_days_with_req=metrics_df[metrics_df['Request Status']!='Rejected']
+        total_absence_days_with_req=total_absence_days_with_req[~total_absence_days_with_req["Project Name"].isin(['Intercontract','Newcomer','No contract'])]
+        total_absence_days=total_absence_days_with_req['Att./abs. days'].sum()
+        total_employees=len(unique_employees)
+        if filtered_data['period']:
+            start_result = start_date > metrics_df['From']
+            end_result = end_date< metrics_df['To']
+            if start_result.any():
+                metrics_df.loc[start_result, 'From'] = start_date
+            if end_result.any():
+                metrics_df.loc[end_result, 'To'] = end_date
+        # Calcuate duration of each absence
+        metrics_df['Duration'] = metrics_df.apply(lambda row: self.calculate_duration_excluding_weekends(row['From'], row['To']), axis=1)
 
+        total_days_possible=all_days*total_employees
+        # Filter the DataFrame based on project name
+        filtered_df = metrics_df[metrics_df['Project Name'].isin(['Intercontract', 'Newcomer', 'No project'])]
+        # Compute total days taken for each group
+        total_days_taken = filtered_df.groupby('Project Name')['Duration'].sum().reset_index()
+        total_days_taken.rename(columns={'Duration': 'Total Days Taken'}, inplace=True)
+        percentage_productive=str(((total_days_possible-total_days_taken['Total Days Taken'].sum()-total_absence_days)/total_days_possible)*100)
+        appended_value_productivity=percentage_productive[:5]
+        appended_productivity=f"Productivity rate for selected filters is {appended_value_productivity}%"
+        self.outputTextEdit.clear()
+        self.outputTextEdit.append(appended_productivity)
+        appended_value_co=str(total_absence_days/total_days_possible*100)
+        appended_text_co=f"Days off rate for selected filters is {appended_value_co[:4]}%"
+        metrics_df_without_duplicates = metrics_df.drop_duplicates(subset=["Employee ID"])
+        entitlement_days=metrics_df_without_duplicates["Sum of Entitlement"].sum()
+        total_annual_leave_df=metrics_df[metrics_df['Absence Type']=='Annual leave']
+        total_annual_leave_df=total_annual_leave_df[total_annual_leave_df['Request Status']=='Approved']
+        total_annual_leave=total_annual_leave_df['Att./abs. days'].sum()
+        appended_value_remaining=str(entitlement_days-total_annual_leave)
+        appended_text_remaining=f"Days off remaining number: {appended_value_remaining}"
+        self.outputTextEdit.append(appended_text_co)
+        self.outputTextEdit.append(appended_text_remaining)
+        self.outputTextEdit.append(f"Number of employees: {len(unique_employees)}")
+        
     def aggregate_data(self, bin_size):
         filtered_df = self.filterData(without_period=False)
-
+        print(filtered_df)
         if filtered_df.empty:
             return pd.DataFrame()
 
@@ -1178,12 +1316,12 @@ class ApplicationWindow(QMainWindow):
             else:
                 for date in business_days:
                     all_absences.append({'Date': date, 'AbsenceDays': abs_days_per_date})
-        
+        if filtered_df_valid.empty:
+            return pd.DataFrame
         all_absences_df = pd.DataFrame(all_absences)
         # Aggregate the absences based on the bin size (day, week, or month)
         aggregated_all_df = self.aggregate_absences(all_absences_df, bin_size)
 
-   
         filtered_annual_leave_df = self.filterData(without_period=True)
         annual_leave_absences = []
         filtered_annual_leave_df_valid=filtered_annual_leave_df[filtered_annual_leave_df['Request Status']!='Rejected']
@@ -1191,18 +1329,13 @@ class ApplicationWindow(QMainWindow):
             business_days = pd.date_range(row['From'], row['To']).to_series().map(lambda x: x if x.weekday() < 5 else None).dropna()
             for date in business_days:
                 annual_leave_absences.append({'Date': date, 'AbsenceDays': 1})
-
         annual_leave_absences_df = pd.DataFrame(annual_leave_absences)
-
         if self.selections['leave'] is None or 'Annual leave' in self.selections['leave']:
             aggregated_annual_leave_df = self.aggregate_absences(annual_leave_absences_df, bin_size)
             aggregated_annual_leave_df['CumulativeAbsenceDays'] = aggregated_annual_leave_df['AbsenceDays'].cumsum()
-
             unique_entitlements = filtered_df.drop_duplicates(subset=['Employee Name'])
             total_entitlement = unique_entitlements['Sum of Entitlement'].sum()
-
             aggregated_annual_leave_df['CumulativePercentage'] = (aggregated_annual_leave_df['CumulativeAbsenceDays'] / total_entitlement) * 100
-
             # Combine the aggregated dataframes
             aggregated_df = aggregated_all_df.merge(aggregated_annual_leave_df[['Date', 'CumulativePercentage']], on='Date', how='left').fillna(method='ffill')
         else:
@@ -1366,6 +1499,7 @@ class ApplicationWindow(QMainWindow):
 
         self.figureHistogram.subplots_adjust(left=0.07, right=0.95, top=0.95, bottom=0.15)
         self.canvasHistogram.draw()
+        self.calculate_metrics()
 
 
     def createRemainingLeavesChart(self):
@@ -1455,7 +1589,7 @@ class ApplicationWindow(QMainWindow):
                         'manager': 'Manager Name',
                     }
                     if category in column_map:
-                        filtered_column = column_map[category]
+                        filtered_column =  column_map[category]
                         filtered_df = filtered_df[filtered_df[filtered_column].isin(selection)]
 
         return filtered_df
