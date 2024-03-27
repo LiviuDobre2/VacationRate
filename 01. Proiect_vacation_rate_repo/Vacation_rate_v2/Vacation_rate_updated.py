@@ -1204,8 +1204,8 @@ class ApplicationWindow(QMainWindow):
             else:
                 return 'month'
         return 'month'  # Default bin size
-    def total_working_days(self,start_date):
-        current_date = pd.Timestamp.today()
+    def total_working_days(self,start_date,end_date):
+        current_date = pd.to_datetime(end_date)
         total_days = 0
         # Iterate over each day from start_date to current_date
         current=pd.to_datetime(start_date)
@@ -1222,7 +1222,7 @@ class ApplicationWindow(QMainWindow):
         filtered_data=self.selections
         
         metrics_df=df
-        all_days=self.total_working_days(metrics_df['From'].min())
+        all_days=self.total_working_days(metrics_df['From'].min(),metrics_df['To'].max())
         if filtered_data['employee'] is not None:
             metrics_df=df[df['Employee Name'].isin(filtered_data['employee'])]
             metrics_df=metrics_df.drop_duplicates(subset=['Employee Name', 'From'])
@@ -1240,7 +1240,7 @@ class ApplicationWindow(QMainWindow):
                         metrics_df=metrics_df.drop_duplicates(subset=['Employee Name', 'From'])
         if filtered_data['period']:
             start_date, end_date = self.selections['period']
-            all_days=self.total_working_days(start_date)
+            all_days=self.total_working_days(start_date,end_date)
             metrics_df['From'] = pd.to_datetime(metrics_df['From'])
             metrics_df['To'] = pd.to_datetime(metrics_df['To'])
             metrics_df = metrics_df[
@@ -1287,6 +1287,10 @@ class ApplicationWindow(QMainWindow):
         self.outputTextEdit.append(appended_text_co)
         self.outputTextEdit.append(appended_text_remaining)
         self.outputTextEdit.append(f"Number of employees: {len(unique_employees)}")
+        self.outputTextEdit.append('\n')
+        self.outputTextEdit.append(f"Information valid for")
+        for i in self.selections:
+            self.outputTextEdit.append(f"{i}:{self.selections[i]}")
         
     def aggregate_data(self, bin_size):
         filtered_df = self.filterData(without_period=False)
