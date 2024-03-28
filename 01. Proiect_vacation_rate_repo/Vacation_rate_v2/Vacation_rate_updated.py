@@ -692,14 +692,19 @@ class MonthlyTableWindow(QDialog):
                                cell_item.setBackground(light_green)
                                self.tableWidget.setItem(row_index, column_index+i, cell_item)
         for row_index in range(1, self.tableWidget.rowCount()):  # Iterate through rows
-            total_days = 0
+            total_days = 0.0
             for col_index in range(1, num_days + 1):  # Iterate through columns (days)
                 item = self.tableWidget.item(row_index, col_index)
                 if item is not None:
                     absence_days = item.text()  # Get absence days for the current cell
                     for day in absence_days:
-                        if day.isalpha() and day != 'W':
-                            total_days += 1  # Add 1 to total days for non-'W' letters
+                        print(day)
+                        if  day == '1':
+                            total_days -= 0.5
+                        else:  
+                            if day == 'H':
+                                total_days += 1  
+    
             # Add the total days taken to a new column at the end of the row
             total_days_item = QTableWidgetItem(str(total_days))
             self.tableWidget.setItem(row_index, num_days + 1, total_days_item)
@@ -880,9 +885,27 @@ class MonthlyTableWindow(QDialog):
                 item = QTableWidgetItem()
                 tableWidget.setItem(0, col, item)
             item.setBackground(light_blue)
+        for row_index in range(1, tableWidget.rowCount()):  # Iterate through rows
+            total_days = 0.0
+            for col_index in range(1, num_days + 1):  # Iterate through columns (days)
+                item = tableWidget.item(row_index, col_index)
+                if item is not None:
+                    absence_days = item.text()  # Get absence days for the current cell
+                    for day in absence_days:
+                        print(day)
+                        if  day == '1':
+                            total_days -= 0.5
+                        else:  
+                            if day == 'H':
+                                total_days += 1  
+    
+            # Add the total days taken to a new column at the end of the row
+            total_days_item = QTableWidgetItem(str(total_days))
+            tableWidget.setItem(row_index, num_days , total_days_item)
+        tableWidget.setItem(0,num_days,QTableWidgetItem('Total'))
+        tableWidget.resizeRowsToContents()
         tableWidget.resizeColumnsToContents()
         tableWidget.repaint()
-        
         return tableWidget
     
 class ApplicationWindow(QMainWindow):
