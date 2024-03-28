@@ -23,6 +23,12 @@ from PyQt5.QtGui import QColor
 import openpyxl
 from openpyxl.styles import PatternFill, Font, Alignment,Border,Side
 from PyQt5.QtWidgets import QGroupBox
+from PyQt5.QtWidgets import QAction
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+from reportlab.lib import colors
+from reportlab.platypus import Table, TableStyle
+import os
 
 script_directory = os.path.dirname(os.path.abspath(__file__))
 excel_file_name = 'VacationRatex2.xlsx'
@@ -935,9 +941,14 @@ class ApplicationWindow(QMainWindow):
 
         # Create Menu Bar
         menubar = self.menuBar()
-        viewMenu = menubar.addMenu('View')
+        #viewMenu = menubar.addMenu('View')
         downloadMenu = menubar.addMenu('Download')
-        helpMenu = menubar.addMenu('Help')
+        #helpMenu = menubar.addMenu('Help')
+
+        # Create an action for downloading
+        downloadAction = QAction('Export to PDF', self)
+        downloadAction.triggered.connect(self.export_to_pdf)
+        downloadMenu.addAction(downloadAction)
 
         # Main layout
         mainLayout = QHBoxLayout()
@@ -974,6 +985,8 @@ class ApplicationWindow(QMainWindow):
         self.employeeButton.clicked.connect(lambda: self.showSelectionDialog(unique_employee, 'Select Employee'))
         self.typeOfLeaveButton = QPushButton('Type of Leave')
         self.typeOfLeaveButton.clicked.connect(lambda: self.showSelectionDialog(unique_leave, 'Select Type of Leave'))
+        self.resetFiltersButton = QPushButton('Reset All Filters')
+        self.resetFiltersButton.clicked.connect(self.resetAllFilters)
 
 
         filtersLayout.addWidget(self.departmentButton)
@@ -981,6 +994,7 @@ class ApplicationWindow(QMainWindow):
         filtersLayout.addWidget(self.managerButton)
         filtersLayout.addWidget(self.employeeButton)
         filtersLayout.addWidget(self.typeOfLeaveButton)
+        filtersLayout.addWidget(self.resetFiltersButton)
 
         viewLayout.addWidget(self.monthlyCalendarViewButton)
         viewLayout.addWidget(self.selectSpecificPeriodButton)
@@ -1079,7 +1093,56 @@ class ApplicationWindow(QMainWindow):
         self.createRemainingLeavesChart()
         self.show()
 
+    def export_to_pdf(self):
+        chart_paths = ['histogram.png', 'doughnut_chart.png', 'leaves_chart.png']
+        self.figureHistogram.savefig(chart_paths[0])
+        self.figureDoughnut.savefig(chart_paths[1])
+        self.figureLeaves.savefig(chart_paths[2])
 
+        metrics = {
+            # Example metrics, replace with actual data retrieval from the "Employees" section
+            "Total Employees": "100",
+            "Average Leaves Taken": "5",
+        }
+        
+        output_path = os.path.join(os.path.dirname(__file__), 'vacation_rate_report.pdf')
+        c = canvas.Canvas(output_path, pagesize=letter)
+        width, height = letter
+
+        # Title
+        c.setFont("Helvetica-Bold", 20)
+        c.drawCentredString(width / 2, height - 50, "Vacation Rate Report")
+
+        # Adding charts
+        for i, chart_path in enumerate(chart_paths):
+            c.drawImage(chart_path, x=50, y=height - (i + 1) * 250 - 100, width=width - 100, height=200, preserveAspectRatio=True)
+
+        # Adding metrics as a table
+        metrics_data = [["Metric", "Value"]] + [[k, v] for k, v in metrics.items()]
+        table = Table(metrics_data, colWidths=[200, 150], rowHeights=30)
+        table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.lightblue),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ]))
+        table.wrapOn(c, width, height)
+        table.drawOn(c, 50, 100)
+
+        c.save()
+
+
+        # Clean up the chart images
+        for chart_path in chart_paths:
+            os.remove(chart_path)
+
+    def showDownloadDialog(self):
+        # Assuming you have a method that creates and shows the dialog
+        download_options = ['Option 1', 'Option 2', 'Option 3']  # Replace with actual options
+        self.showSelectionDialog(download_options, 'Download Data')
 
     
     def modifyButtonAppearance(self, button):
@@ -1116,6 +1179,14 @@ class ApplicationWindow(QMainWindow):
         print("Current selections:", self.selections)
         self.createHistogram() 
         self.createDoughnutChart() 
+
+    def resetAllFilters(self):
+        # Reset all selections to None
+        self.selections = {key: None for key in self.selections.keys()}
+        # You might want to call the methods to update your charts here
+        self.createHistogram()
+        self.createDoughnutChart()
+        self.createRemainingLeavesChart()
 
 
     def handlePredefinedPeriod(self, period):
